@@ -1,0 +1,9 @@
+streamlit
+requests
+langchain
+langchain_community
+fastapi
+qdrant_client
+langchain_qdrant
+tqdm
+sentence_transformers
