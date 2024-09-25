@@ -24,6 +24,7 @@ class AppSettings:
         load_dotenv(self.env_file)
         self.QDRANT_URL = os.getenv("QDRANT_URL")
         self.GROQ_API_KEY =  os.getenv("GROQ_API_KEY")
+        self.NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
         self.HYBRID_COLLECTION = os.getenv("HYBRID_COLLECTION_NAME")
         self.DENSE_COLLECTION = os.getenv("DENSE_COLLECTION_NAME")
         self.DENSE_EMBEDDING_MODEL = os.getenv("DENSE_MODEL")

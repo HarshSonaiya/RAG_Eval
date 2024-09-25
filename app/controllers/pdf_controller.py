@@ -94,16 +94,14 @@ class PdfController:
 # Create an APIRouter to register the routes
 router = APIRouter()
 
-# Dependency injection for the LLM manager, Qdrant client, and evaluation service
-llm_manager = LLMManager()
-llm_chain_manager = LLMChainManager(llm_manager)
 client_manager = QdrantClientManager()
 evaluation_service = EvaluationService()
 
 # Create an instance of PdfController with injected dependencies
-pdf_controller = PdfController(llm_chain_manager, client_manager, evaluation_service)
+pdf_controller = PdfController(client_manager, evaluation_service)
 
 # Register the routes with the router
 router.post("/api/hybrid_rag")(pdf_controller.hybrid_rag_endpoint)
 router.post("/api/hyde_rag")(pdf_controller.hyde_rag_endpoint)
+router.post("/api/dense_rag")(pdf_controller.dense_rag_endpoint)
 router.post("/api/multiquery_rag")(pdf_controller.multiquery_rag_endpoint)
