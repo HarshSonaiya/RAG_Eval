@@ -8,8 +8,7 @@ from app.services.hyde_service import HyDEService
 from app.services.dense_rag_service import DenseRagService
 from app.services.multi_query_service import MultiQueryRetriever
 from app.utils.llm_manager import LLMManager
-
-# from app.services.evaluation import EvaluationService  
+from app.services.evaluation_service import EvaluationService  
 
 
 class PdfController:
