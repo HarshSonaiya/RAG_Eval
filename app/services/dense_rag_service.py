@@ -1,14 +1,17 @@
-from app.config.settings import settings
+from config.settings import settings
 from qdrant_client import QdrantClient
 from langchain.schema import Document
-from app.utils.dense_collection import DenseCollection
+from utils.dense_collection import DenseCollection
 from langchain_qdrant import QdrantVectorStore
-import logging
+from config.logging_config import LoggerFactory  
 from typing import List 
-from app.utils.llm_manager import LLMManager
+from utils.llm_manager import LLMManager
 
 
-logger = logging.getLogger("dense_rag_service")
+
+# Initialize logger using LoggerFactory
+logger_factory = LoggerFactory()
+logger = logger_factory.get_logger("pipeline")
 
 class DenseRagService:
     def __init__(self, client: QdrantClient):
@@ -24,6 +27,7 @@ class DenseRagService:
         Answer in Markdown: """
         self.collection = DenseCollection(client, settings.DENSE_COLLECTION)
         self.vector_store = QdrantVectorStore(client=self.client, index_name=settings.DENSE_COLLECTION)
+        self.retriever = self.vector_store.as_retriever(search_type="mmr")
 
     def index_collection(self, chunks: List[Document]):
         """
@@ -31,12 +35,11 @@ class DenseRagService:
         """
         self.collection.index_dense_collection(chunks)
 
-    def dense_search(self, query: str, limit=5):
+    def dense_search(self, query: str):
         """
         Perform a dense search based on the provided query using QdrantVectorStore.
         """
-        results = self.vector_store.as_retriever(query=query, limit=limit)
-
+        results = self.retriever.invoke(query)
         return results
 
     def generate_response(self, question: str, context: str):

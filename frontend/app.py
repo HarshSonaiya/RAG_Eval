@@ -14,7 +14,7 @@ class RAGApp:
         """
         self.logger = LoggerFactory().get_logger("streamlit")
         self.setup_ui()
-    
+
     def setup_ui(self):
         """
         Sets up the user interface for the Streamlit app.
@@ -34,7 +34,7 @@ class RAGApp:
 
         self.rag_model = st.selectbox(
             "Choose the RAG model to process your query:",
-            options=["Hybrid Retriever", "HyDE Retriever", "Multiquery Retriever"]
+            options=["Hybrid Retriever", "HyDE Retriever", "Multiquery Retriever", "Dense Retriever", "All"]
         )
 
         # Store uploaded PDFs in session state to avoid resubmitting
@@ -90,7 +90,9 @@ class RAGApp:
                 selected_rag_model = {
                     "Hybrid Retriever": "hybrid_rag",
                     "HyDE Retriever": "hyde_rag",
-                    "Multiquery Retriever": "multiquery_rag"
+                    "Multiquery Retriever": "multiquery_rag",
+                    "Dense Retriever": "dense_rag",
+                    "All": "all"
                 }.get(self.rag_model)
 
                 # Send request to backend
@@ -119,7 +121,9 @@ class RAGApp:
             results = response.json()
             self.logger.info("Successful response received from FastAPI backend.")
 
+            # Display results based on the selected RAG model
             self.display_results(results)
+
         else:
             st.error(f"Error: {response.status_code} - {response.text}")
             self.logger.error(f"Error: {response.status_code} - {response.text}")
@@ -131,27 +135,46 @@ class RAGApp:
         Args:
             results (dict): The results returned from the backend.
         """
-        result_hybrid = results.get("hybrid_response", "No hybrid retriever response")
-        hybrid_llm_eval = results.get("hybrid_llm_eval", "No Response")
-        retriever_llm_eval = results.get("hybrid_retriever_eval", "No Response")
+        if self.rag_model == "All":
+            # Display results for all models
+            self.display_model_results(results, "Hybrid Retriever", "hybrid")
+            self.display_model_results(results, "HyDE Retriever", "hyde")
+            self.display_model_results(results, "Multiquery Retriever", "multiquery")
+            self.display_model_results(results, "Dense Retriever", "dense")
+        else:
+            # Display results for the selected model only
+            model_key = self.rag_model.lower().replace(" ", "_")
+            self.display_model_results(results, self.rag_model, model_key)
 
-        result_hyde = results.get("hyde_response", "No HyDE retriever response")
-        hyde_llm_eval = results.get("hyde_llm_eval", "No Response")
-        hyde_retriever_llm_eval = results.get("hyde_retriever_eval", "No Response")
+    def display_model_results(self, results, model_name, model_key):
+        """
+        Displays results for a specific RAG model.
+
+        Args:
+            results (dict): The results returned from the backend.
+            model_name (str): The name of the model.
+            model_key (str): The key used to fetch results for the model.
+        """
+        response_key = f"{model_key}_response"
+        llm_eval_key = f"{model_key}_llm_eval"
+        retriever_eval_key = f"{model_key}_retriever_eval"
+
+        result = results.get(response_key, f"No {model_name} response")
+        llm_eval = results.get(llm_eval_key, "No Response")
+        retriever_eval = results.get(retriever_eval_key, "No Response")
 
         # Display results
-        st.subheader("Response from Hybrid Retriever")
-        st.write(result_hybrid)
-        st.subheader("Evaluation of Hybrid Retriever Response")
-        st.subheader("LLM Evaluation")
-        st.write(hybrid_llm_eval[0]["content"])
-        st.subheader("Retriever Evaluation")
-        st.write(retriever_llm_eval[0]["content"])
+        st.subheader(f"Response from {model_name}")
+        st.write(result)
 
-        st.subheader("Response from HyDE Retriever")
-        st.write(result_hyde)
-        st.subheader("Evaluation of HyDE Retriever Response")
-        st.subheader("LLM Evaluation")
-        st.write(hyde_llm_eval[0]["content"])
-        st.subheader("Retriever Evaluation")
-        st.write(hyde_retriever_llm_eval[0]["content"])
+        if isinstance(llm_eval, list) and llm_eval:
+            st.subheader(f"Evaluation of {model_name} Response")
+            st.subheader("LLM Evaluation")
+            st.write(llm_eval[0]["content"])
+        
+        if isinstance(retriever_eval, list) and retriever_eval:
+            st.subheader("Retriever Evaluation")
+            st.write(retriever_eval[0]["content"])
+
+# Initialize the RAGApp
+rag_app = RAGApp()

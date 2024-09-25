@@ -1,13 +1,15 @@
-# app/services/hybrid_rag_service.py
-from app.config.settings import settings
+from config.settings import settings
 from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from tqdm import tqdm
 from typing import List 
-import logging
-from app.utils.llm_manager import LLMManager  
+from config.logging_config import LoggerFactory  
+from utils.llm_manager import LLMManager  
 
-logger = logging.getLogger("hybrid_rag_service")
+
+# Initialize logger using LoggerFactory
+logger_factory = LoggerFactory()
+logger = logger_factory.get_logger("pipeline")
 
 class HybridRagService:
     def __init__(self, client: QdrantClient):

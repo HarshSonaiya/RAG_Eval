@@ -5,11 +5,11 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Copy the requirements and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY ../requirements.txt .
+RUN pip install -r requirements.txt
 
 # Copy the app code to the working directory
-COPY app/ ./app
+COPY app/ ./
 
 # Copy the .env file if necessary
 COPY .env ./
@@ -18,4 +18,4 @@ COPY .env ./
 EXPOSE 8000
 
 # Command to run FastAPI (or adjust based on your entry point)
-CMD ["uvicorn", "app.main:app", "--host", "localhost", "--port", "9000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]

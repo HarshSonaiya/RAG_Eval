@@ -2,10 +2,14 @@ from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from tqdm import tqdm
 import logging
-from app.config.settings import settings
+from config.settings import settings
 from typing import List
+from config.logging_config import LoggerFactory  
 
-logger = logging.getLogger("dense_collection_utils")
+
+# Initialize logger using LoggerFactory
+logger_factory = LoggerFactory()
+logger = logger_factory.get_logger("pipeline")
 
 class DenseCollection:
     def __init__(self, client: QdrantClient, index_name: str):

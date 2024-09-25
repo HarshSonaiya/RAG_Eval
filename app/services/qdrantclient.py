@@ -1,6 +1,6 @@
 from qdrant_client import QdrantClient, models
-from app.config.logging_config import LoggerFactory
-from app.config.settings import settings
+from config.logging_config import LoggerFactory
+from config.settings import settings
 
 class QdrantClientManager:
     """Singleton manager for Qdrant client connections and collection management."""

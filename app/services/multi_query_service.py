@@ -1,37 +1,37 @@
-from app.config.settings import settings
+from config.settings import settings
 from qdrant_client import QdrantClient
-from langchain.schema import Document
 from langchain_qdrant import QdrantVectorStore
 from langchain.retrievers import MultiQueryRetriever
-import logging
-from typing import List 
+from config.logging_config import LoggerFactory  # Import LoggerFactory
+from utils.llm_manager import LLMManager 
 
-logger = logging.getLogger("multi_query_service")
+
+# Initialize logger using LoggerFactory
+logger_factory = LoggerFactory()
+logger = logger_factory.get_logger("pipeline")
 
 class MultiQueryService:
     def __init__(self, client: QdrantClient):
         self.client = client
         self.vector_store = QdrantVectorStore(client=self.client, index_name=settings.DENSE_COLLECTION)
-        self.multi_query_retriever = MultiQueryRetriever(retriever=self.vector_store)
+        self.retriever = self.vector_store.as_retriever(search_type="mmr")
+        # Initialize ChatGroq as the LLM
+        self.llm = LLMManager()
+        
+        # Create MultiQueryRetriever using the vector store and LLM
+        self.multi_query_retriever = MultiQueryRetriever.from_llm(llm=self.llm, retriever=self.retriever)
 
-    def index_documents(self, chunks: List[Document]):
-        """
-        Index the given list of Document chunks into the Qdrant collection.
-        """
-        # Here, you can call the existing indexing logic if needed
-        # This can be left out if you don't want to duplicate indexing logic
-        self.vector_store.index_documents(chunks)
-
-    def multi_query_search(self, queries: List[str], limit=5):
+    def multi_query_search(self, query: str, limit=5):
         """
         Perform a multi-query search based on the provided queries using MultiQueryRetriever.
         """
-        results = self.multi_query_retriever.retrieve(queries=queries, limit=limit)
+        # Use the generate method to retrieve results
+        results = self.multi_query_retriever.invoke(query)
         return results
 
     def generate_response(self, question: str, context: str):
         """
-        Generate a response using the LLMManager and prompt template.
+        Generate a response using the LLM based on the provided question and context.
         """
-        response = self.llm_manager.llm.invoke({"question": question, "context": context})['text']
+        response = self.llm.invoke({"question": question, "context": context})['text']
         return response

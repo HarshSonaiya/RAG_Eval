@@ -1,18 +1,25 @@
 from openai import OpenAI
-from app.config.settings import settings
+from config.settings import settings
+import logging
+
+logger = logging.getLogger("test_set_generator")  # Create a logger for this module
 
 class TestSetGenerator:
     def __init__(self, api_key):
+        logger.info("Initializing TestSetGenerator with API key.")
         self.client = OpenAI(
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1"
         )
+        logger.info("OpenAI client initialized successfully.")
 
     def create_test_set(self, chunks):
         """Generates questions and ground truths from the provided chunks."""
+        logger.info("Starting to create test set from provided chunks.")
         question_ground_truth_pairs = {}
 
         for passage in chunks[:5]:
+            logger.debug(f"Generating questions and ground truths for passage: {passage.page_content[:50]}...")  # Log the first 50 chars
             prompt = f'''
             You are an AI assistant for generating questions and ground truths based on the various passages from the user.
             Please generate questions and ground truths clearly labeled as follows:
@@ -24,15 +31,19 @@ class TestSetGenerator:
             Passage: {passage.page_content}
             '''
 
-            chat_completion = self.client.chat.completions.create(
-                model="nvidia/nemotron-4-340b-instruct",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.4,
-                top_p=0.7,
-                max_tokens=1400,
-            )
-
-            response = chat_completion.choices[0].message.content
+            try:
+                chat_completion = self.client.chat.completions.create(
+                    model="nvidia/nemotron-4-340b-instruct",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.4,
+                    top_p=0.7,
+                    max_tokens=1400,
+                )
+                response = chat_completion.choices[0].message.content
+                logger.info("Successfully generated questions and ground truths.")
+            except Exception as e:
+                logger.error(f"Error generating questions and ground truths: {e}")
+                continue  # Skip this passage and continue with the next
 
             # The response contains both questions and ground truths, let's parse them
             questions = []
@@ -53,53 +64,67 @@ class TestSetGenerator:
             for q, a in zip(questions, ground_truths):
                 question_ground_truth_pairs[q] = a
 
+        logger.info("Completed creating test set.")
         return question_ground_truth_pairs
 
     def evaluate_llm(self, validation_set):
         """Evaluates the language model using the provided validation set."""
-        completion = self.client.chat.completions.create(
-            model="nvidia/nemotron-4-340b-reward",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""
-                    user_query: {validation_set["question"]} Based on the below context answer the user's query
-                    context: {validation_set["retrieved_docs"]}
-                    Expected Answer: {validation_set["ground_truth"]}
-                    """
-                },
-                {
-                    "role": "assistant",
-                    "content": validation_set["llm_response"]
-                }
-            ],
-        )
-        response = completion.choices[0].message
-        return response
+        logger.info("Evaluating LLM with the provided validation set.")
+        try:
+            completion = self.client.chat.completions.create(
+                model="nvidia/nemotron-4-340b-reward",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""
+                        user_query: {validation_set["question"]} Based on the below context answer the user's query
+                        context: {validation_set["retrieved_docs"]}
+                        Expected Answer: {validation_set["ground_truth"]}
+                        """
+                    },
+                    {
+                        "role": "assistant",
+                        "content": validation_set["llm_response"]
+                    }
+                ],
+            )
+            response = completion.choices[0].message
+            logger.info("Successfully evaluated LLM.")
+            return response
+        except Exception as e:
+            logger.error(f"Error evaluating LLM: {e}")
+            return None
 
     def evaluate_retriever(self, validation_set):
         """Evaluates the document retriever using the provided validation set."""
-        completion = self.client.chat.completions.create(
-            model="nvidia/nemotron-4-340b-reward",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""
-                    Question: {validation_set["question"]}
-                    Expected Answer: {validation_set["ground_truth"]}
-                    """
-                },
-                {
-                    "role": "assistant",
-                    "content": validation_set["retrieved_docs"]
-                }
-            ]
-        )
-        response = completion.choices[0].message
-        return response
+        logger.info("Evaluating document retriever with the provided validation set.")
+        try:
+            completion = self.client.chat.completions.create(
+                model="nvidia/nemotron-4-340b-reward",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""
+                        Question: {validation_set["question"]}
+                        Expected Answer: {validation_set["ground_truth"]}
+                        """
+                    },
+                    {
+                        "role": "assistant",
+                        "content": validation_set["retrieved_docs"]
+                    }
+                ]
+            )
+            response = completion.choices[0].message
+            logger.info("Successfully evaluated retriever.")
+            return response
+        except Exception as e:
+            logger.error(f"Error evaluating retriever: {e}")
+            return None
 
     def generate_ground_truth(self, query: str):
         """Generates ground truth based on the provided query."""
+        logger.info("Generating ground truth based on the provided query.")
         prompt = f'''
         You are an AI assistant for generating ground truth based on the user query and your knowledge.
         Please ground truths clearly labeled as follows:
@@ -108,20 +133,25 @@ class TestSetGenerator:
         Query: {query}
         '''
 
-        chat_completion = self.client.chat.completions.create(
-            model="nvidia/nemotron-4-340b-instruct",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            top_p=0.7,
-            max_tokens=1400,
-        )
+        try:
+            chat_completion = self.client.chat.completions.create(
+                model="nvidia/nemotron-4-340b-instruct",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                top_p=0.7,
+                max_tokens=1400,
+            )
+            response = chat_completion.choices[0].message.content
+            logger.info("Successfully generated ground truth.")
+            return response
+        except Exception as e:
+            logger.error(f"Error generating ground truth: {e}")
+            return None
 
-        response = chat_completion.choices[0].message.content
-        return response
 
-
-def evaluate_response(retrieved: str, query: str, hybrid_response):
+def evaluate_response(retrieved: str, query: str, llm_response):
     """Evaluates the response of the language model and the retriever."""
+    logger.info("Evaluating the response of the language model and the retriever.")
     user = TestSetGenerator(api_key=settings.NVIDIA_API_KEY)
     ground_truth = user.generate_ground_truth(query)
 
@@ -129,10 +159,11 @@ def evaluate_response(retrieved: str, query: str, hybrid_response):
         "question": query,
         "ground_truth": ground_truth,
         "retrieved_docs": retrieved,
-        "llm_response": hybrid_response
+        "llm_response": llm_response
     }]
 
     llm_eval = user.evaluate_llm(validation_set[0])
     retriever_eval = user.evaluate_retriever(validation_set[0])
+    logger.info("Evaluation completed. Returning results.")
     print("Retriever_eval", retriever_eval)
     return llm_eval, retriever_eval

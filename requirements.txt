@@ -8,4 +8,6 @@ qdrant_client
 langchain_qdrant
 langchain_groq
 tqdm
-textembed
+uvicorn
+openai
+python-multipart
