@@ -1,9 +1,11 @@
 streamlit
 requests
+python-dotenv
+fastapi
 langchain
 langchain_community
-fastapi
 qdrant_client
 langchain_qdrant
+langchain_groq
 tqdm
-sentence_transformers
+textembed

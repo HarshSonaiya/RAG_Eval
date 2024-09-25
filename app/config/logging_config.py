@@ -3,8 +3,14 @@ import os
 
 
 class LoggerFactory:
+    """
+    A factory class for creating and configuring loggers for different modules in the application.
+    """
 
     def __init__(self):
+        """
+        Initializes the LoggerFactory and sets up log directories and handlers.
+        """
         # Ensure log directory exists
         os.makedirs("logs", exist_ok=True)
 
@@ -16,28 +22,44 @@ class LoggerFactory:
         )
 
         # Handlers for each module's log file
-        self.streamlit_handler = logging.FileHandler("logs/streamlit.log")
-        self.streamlit_handler.setLevel(logging.DEBUG)
+        self.handlers = {
+            "streamlit": self.create_file_handler("logs/streamlit.log"),
+            "server": self.create_file_handler("logs/server.log"),
+            "pipeline": self.create_file_handler("logs/pipeline.log"),
+        }
 
-        self.server_handler = logging.FileHandler("logs/server.log")
-        self.server_handler.setLevel(logging.DEBUG)
+    def create_file_handler(self, file_path):
+        """
+        Creates a file handler for logging.
 
-        self.pipeline_handler = logging.FileHandler("logs/pipeline.log")
-        self.pipeline_handler.setLevel(logging.DEBUG)
+        Args:
+            file_path (str): The path to the log file.
+
+        Returns:
+            logging.FileHandler: The file handler for the specified log file.
+        """
+        handler = logging.FileHandler(file_path)
+        handler.setLevel(logging.DEBUG)
+        return handler
 
     def get_logger(self, name):
-        # Define logger for each part of the application
+        """
+        Retrieves a logger for the specified module name.
+
+        Args:
+            name (str): The name of the module for which to get a logger.
+
+        Returns:
+            logging.Logger: A logger instance configured for the specified module.
+        """
         logger = logging.getLogger(name)
 
-        # Add appropriate handler based on the name
-        if "streamlit" in name:
-            if not any(isinstance(handler, logging.FileHandler) and handler.baseFilename == self.streamlit_handler.baseFilename for handler in logger.handlers):
-                logger.addHandler(self.streamlit_handler)
-        elif "server" in name:
-            if not any(isinstance(handler, logging.FileHandler) and handler.baseFilename == self.server_handler.baseFilename for handler in logger.handlers):
-                logger.addHandler(self.server_handler)
-        elif "pipeline" in name:
-            if not any(isinstance(handler, logging.FileHandler) and handler.baseFilename == self.pipeline_handler.baseFilename for handler in logger.handlers):
-                logger.addHandler(self.pipeline_handler)
+        # Add the appropriate handler based on the module name
+        for key, handler in self.handlers.items():
+            if key in name and not any(
+                isinstance(h, logging.FileHandler) and h.baseFilename == handler.baseFilename
+                for h in logger.handlers
+            ):
+                logger.addHandler(handler)
 
         return logger

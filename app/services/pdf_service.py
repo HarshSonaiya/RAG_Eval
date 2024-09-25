@@ -1,68 +1,54 @@
 import os
 import shutil
-from fastapi import UploadFile
 from typing import List
-from app.config.logging_config import LoggerFactory
-from langchain.schema import Document  # Update with the correct import for your Document model
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
+from fastapi import UploadFile
 
 class PdfService:
-    logger = LoggerFactory().get_logger("pdf_processing")
+    def __init__(self, processor, logger):
+        self.processor = processor
+        self.logger = logger
+        # Directory path inside the Docker volume (mapped to the host)
+        self.docker_volume_path = "/data/raw"  # This is the path inside the Docker container
 
-    @classmethod
-    async def process_pdf(cls, files: List[UploadFile]) -> List[Document]:
+    async def process_pdf(self, files: List[UploadFile]) -> List[Document]:
         """
-        Process uploaded PDF files, save them, and extract content chunks.
+        Process uploaded PDF files, save them in a Docker volume, and extract content chunks.
+        If a file is already stored, skip the extraction.
 
         Args:
             files (List[UploadFile]): List of uploaded PDF files.
-            query (str): The user query (not used in current implementation).
 
         Returns:
             List[Document]: A list of Document chunks extracted from the PDFs.
         """
-        all_chunks = []  # List to store chunks from all PDFs
+        all_chunks = []
 
-        try:
-            for file in files:
-                temp_file_path = f"data/raw/{file.filename}"
-                cls.logger.info(f"Received file: {file.filename}")
+        for file in files:
+            try:
+                # Path where the file will be saved inside the Docker container
+                temp_file_path = os.path.join(self.docker_volume_path, file.filename)
+                self.logger.info(f"Received file: {file.filename}")
 
-                # Ensure the directory exists
+                # Ensure the directory exists inside the Docker volume
                 os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
 
-                # Save the uploaded file to a temporary location
-                with open(temp_file_path, "wb") as temp_file:
-                    shutil.copyfileobj(file.file, temp_file)
+                # Check if the file already exists to avoid redundant processing
+                if not os.path.exists(temp_file_path):
+                    # Save the uploaded file to the Docker volume (inside the container)
+                    with open(temp_file_path, "wb") as temp_file:
+                        shutil.copyfileobj(file.file, temp_file)
 
-                # Extract chunks from the saved PDF file
-                chunks = cls.extract_content_from_pdf(temp_file_path)
-                all_chunks.extend(chunks)
+                    # Extract chunks from the saved PDF file
+                    chunks = self.processor.extract_content_from_pdf(temp_file_path)
+                    all_chunks.extend(chunks)
+                    self.logger.info(f"File {file.filename} processed and indexed.")
+                else:
+                    self.logger.info(f"File {file.filename} already exists in volume, skipping processing.")
 
-        except Exception as e:
-            cls.logger.exception(f"An error occurred while processing the PDF: {e}")
-            return {"error": str(e)}
+            except Exception as e:
+                self.logger.exception(f"Error processing the PDF {file.filename}: {e}")
+                raise RuntimeError(f"Failed to process PDF {file.filename}")
 
-        cls.logger.info("PDF processing completed successfully.")
-        return all_chunks  # Return all extracted chunks
-
-    @classmethod
-    def extract_content_from_pdf(cls, file: str) -> List[Document]:
-        """
-        Extract and split content from a PDF file into chunks.
-
-        Args:
-            file (str): Path to the PDF file.
-
-        Returns:
-            List[Document]: A list of Documents containing various attributes
-                            like page_content, metadata, etc. extracted from the PDF.
-        """
-        loader = PyPDFLoader(file)
-        docs = loader.load()
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        chunks = splitter.split_documents(docs)
-
-        cls.logger.info(f"Chunking of {file} completed")
-        return chunks
+        self.logger.info("PDF processing completed successfully.")
+        return all_chunks

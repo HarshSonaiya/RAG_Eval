@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./app:/app
+    env_file:
+      - .env
+    depends_on:
+      - qdrant
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    volumes:
+      - ./frontend:/frontend
+    ports:
+      - "8501:8501"
+
+  qdrant:
+    image: qdrant/qdrant
+    container_name: qdrant_container
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+
+volumes:
+  qdrant_data:
+    driver: local
