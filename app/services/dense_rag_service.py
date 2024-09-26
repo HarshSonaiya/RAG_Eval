@@ -6,6 +6,7 @@ from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from typing import List 
 from utils.llm_manager import LLMManager
+from uuid import uuid4
 
 
 
@@ -26,25 +27,35 @@ class DenseRagService:
         =========
         Answer in Markdown: """
         self.collection = DenseCollection(client, settings.DENSE_COLLECTION)
-        self.vector_store = QdrantVectorStore(client=self.client, index_name=settings.DENSE_COLLECTION)
+        self.collection.create_dense_collection()
+        self.vector_store = QdrantVectorStore(
+            client=self.client, 
+            collection_name=settings.DENSE_COLLECTION, 
+            embedding = settings.DENSE_EMBEDDING_MODEL,
+            vector_name= "dense",
+        )
         self.retriever = self.vector_store.as_retriever(search_type="mmr")
 
-    def index_collection(self, chunks: List[Document]):
+    async def index_collection(self, chunks: List[Document]):
         """
         Index the given list of Document chunks into the Qdrant dense collection.
         """
-        self.collection.index_dense_collection(chunks)
+        uuids = [str(uuid4()) for _ in range(len(chunks))]
+        self.vector_store.add_documents(documents=chunks, ids= uuids)
 
     def dense_search(self, query: str):
         """
         Perform a dense search based on the provided query using QdrantVectorStore.
         """
         results = self.retriever.invoke(query)
+        logger.info(f"Dense Search Completed. {results}")
         return results
 
     def generate_response(self, question: str, context: str):
         """
         Generate a response using the LLMManager and prompt template.
         """
-        response = self.llm_manager.llm.invoke({"question": question, "context": context})['text']
+        formatted_prompt = self.prompt_template.format(question=question, context=context)
+
+        response = self.llm_manager.llm.invoke(formatted_prompt)
         return response

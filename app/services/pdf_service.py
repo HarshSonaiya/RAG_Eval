@@ -13,7 +13,7 @@ class PdfService:
         self.docker_volume_path = "/data/raw"  # This is the path inside the Docker container
         self.logger.info("Initialized PdfService with Docker volume path: %s", self.docker_volume_path)
 
-    def extract_content_from_pdf(self, file: str) -> List[Document]:
+    async def extract_content_from_pdf(self, file: str) -> List[Document]:
         """
         Extract and split content from a PDF file into chunks.
 
@@ -47,7 +47,7 @@ class PdfService:
             List[Document]: A list of Document chunks extracted from the PDFs.
         """
         all_chunks = []
-        self.logger.info("Starting to process %d PDF files.", len(files))
+        self.logger.info("Starting to process PDF files.")
 
         for file in files:
             try:
@@ -66,7 +66,7 @@ class PdfService:
                     self.logger.info("Saved file %s to %s", file.filename, temp_file_path)
 
                     # Extract chunks from the saved PDF file
-                    chunks = self.extract_content_from_pdf(temp_file_path)
+                    chunks = await self.extract_content_from_pdf(temp_file_path)
                     all_chunks.extend(chunks)
                     self.logger.info("File %s processed and indexed with %d chunks.", file.filename, len(chunks))
                 else:

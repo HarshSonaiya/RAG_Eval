@@ -1,0 +1,42 @@
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.myenv/
+
+# Ignore log files
+logs/
+*.log
+
+# Ignore test files and test coverage reports
+tests/
+*.coverage
+coverage/
+
+# Ignore temporary files and directories
+*.swp
+*.swo
+*.DS_Store
+*.bak
+*.tmp
+*.old
+*.orig
+
+# Ignore Git-related files and folders
+.git/
+.gitignore
+
+# Ignore Docker-related files (since they are managed separately)
+.dockerignore
+docker-compose.yml
+
+# Ignore volume mount directories (data and Qdrant volumes)
+data/
+qdrant_data/
+
+# Ignore other unnecessary files and directories
+node_modules/

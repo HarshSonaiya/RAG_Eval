@@ -66,10 +66,13 @@ class TestSetGenerator:
 
         logger.info("Completed creating test set.")
         return question_ground_truth_pairs
-
-    def evaluate_llm(self, validation_set):
+    
+    def evaluate_hybrid_llm(self, validation_set):
         """Evaluates the language model using the provided validation set."""
-        logger.info("Evaluating LLM with the provided validation set.")
+        logger.info(f"Evaluating LLM with the provided validation set.{validation_set['retrieved_docs']} and {type(validation_set['retrieved_docs'])}")
+
+        retrieved_docs = "\n\n".join(doc.payload['content'] for doc in validation_set["retrieved_docs"])
+
         try:
             completion = self.client.chat.completions.create(
                 model="nvidia/nemotron-4-340b-reward",
@@ -78,7 +81,7 @@ class TestSetGenerator:
                         "role": "user",
                         "content": f"""
                         user_query: {validation_set["question"]} Based on the below context answer the user's query
-                        context: {validation_set["retrieved_docs"]}
+                        context: {retrieved_docs}
                         Expected Answer: {validation_set["ground_truth"]}
                         """
                     },
@@ -89,15 +92,48 @@ class TestSetGenerator:
                 ],
             )
             response = completion.choices[0].message
-            logger.info("Successfully evaluated LLM.")
+            logger.info(f"Successfully evaluated LLM. {response}")
             return response
         except Exception as e:
             logger.error(f"Error evaluating LLM: {e}")
             return None
+        
+    def evaluate_llm(self, validation_set):
+        """Evaluates the language model using the provided validation set."""
 
+
+        try:
+            completion = self.client.chat.completions.create(
+                model="nvidia/nemotron-4-340b-reward",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""
+                        user_query: {validation_set["question"]} Based on the below context answer the user's query
+                        context: {validation_set['retrieved_docs']}
+                        Expected Answer: {validation_set["ground_truth"]}
+                        """
+                    },
+                    {
+                        "role": "assistant",
+                        "content": validation_set["llm_response"]
+                    }
+                ],
+            )
+            response = completion.choices[0].message
+            logger.info(f"Successfully evaluated LLM. {response}")
+            return response
+        except Exception as e:
+            logger.error(f"Error evaluating LLM: {e}")
+            return None
+        
+
+        
     def evaluate_retriever(self, validation_set):
         """Evaluates the document retriever using the provided validation set."""
         logger.info("Evaluating document retriever with the provided validation set.")
+        
+    
         try:
             completion = self.client.chat.completions.create(
                 model="nvidia/nemotron-4-340b-reward",
@@ -111,7 +147,40 @@ class TestSetGenerator:
                     },
                     {
                         "role": "assistant",
-                        "content": validation_set["retrieved_docs"]
+                        "content":validation_set["retrieved_docs"]
+                    }
+                ]
+            )
+            response = completion.choices[0].message
+            logger.info("Successfully evaluated retriever.")
+            return response
+        except Exception as e:
+            logger.error(f"Error evaluating retriever: {e}")
+            return None
+        
+    def evaluate_hybrid_retriever(self, validation_set):
+        """Evaluates the document retriever using the provided validation set."""
+        logger.info("Evaluating document retriever with the provided validation set.")
+        logger.info(f"Question: {validation_set['question']}")
+        logger.info(f"Expected Answer: {validation_set['ground_truth']}")
+        logger.info(f"Retrieved Docs: {validation_set['retrieved_docs']}")
+
+        retrieved_docs = "\n\n".join(doc.payload['content'] for doc in validation_set["retrieved_docs"])
+
+        try:
+            completion = self.client.chat.completions.create(
+                model="nvidia/nemotron-4-340b-reward",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""
+                        Question: {validation_set["question"]}
+                        Expected Answer: {validation_set["ground_truth"]}
+                        """
+                    },
+                    {
+                        "role": "assistant",
+                        "content": retrieved_docs
                     }
                 ]
             )
@@ -122,6 +191,7 @@ class TestSetGenerator:
             logger.error(f"Error evaluating retriever: {e}")
             return None
 
+    
     def generate_ground_truth(self, query: str):
         """Generates ground truth based on the provided query."""
         logger.info("Generating ground truth based on the provided query.")
@@ -148,8 +218,48 @@ class TestSetGenerator:
             logger.error(f"Error generating ground truth: {e}")
             return None
 
+def clean_and_truncate_input(docs, max_tokens=1400):
+        """Cleans and truncates the retrieved documents."""
+        # Function to count tokens
+        def count_tokens(text):
+            return len(text.split())
 
-def evaluate_response(retrieved: str, query: str, llm_response):
+        # Clean up unnecessary text (e.g., remove excessive whitespace)
+        cleaned_docs = ' '.join(docs.split()).strip()
+
+        # Check the token count and truncate if needed
+        token_count = count_tokens(cleaned_docs)
+        if token_count > max_tokens:
+            # Truncate to fit within the token limit
+            truncated_docs = " ".join(cleaned_docs.split()[:max_tokens])
+            return truncated_docs
+        else:
+            return cleaned_docs
+        
+async def evaluate_response(retrieved: str, query: str, llm_response):
+    """Evaluates the response of the language model and the retriever."""
+    logger.info("Evaluating the response of the language model and the retriever.")
+    user = TestSetGenerator(api_key=settings.NVIDIA_API_KEY)
+    ground_truth = user.generate_ground_truth(query)
+
+    cleaned_docs = clean_and_truncate_input(retrieved)
+
+
+    validation_set = [{
+        "question": query,
+        "ground_truth": ground_truth,
+        "retrieved_docs": cleaned_docs,
+        "llm_response": llm_response
+    }]
+
+    llm_eval = user.evaluate_llm(validation_set[0])
+    retriever_eval = user.evaluate_retriever(validation_set[0])
+    logger.info("Evaluation completed. Returning results.")
+    print("Retriever_eval", retriever_eval)
+    return llm_eval, retriever_eval
+
+
+async def evaluate_hybrid_response(retrieved: str, query: str, llm_response):
     """Evaluates the response of the language model and the retriever."""
     logger.info("Evaluating the response of the language model and the retriever.")
     user = TestSetGenerator(api_key=settings.NVIDIA_API_KEY)
@@ -162,8 +272,8 @@ def evaluate_response(retrieved: str, query: str, llm_response):
         "llm_response": llm_response
     }]
 
-    llm_eval = user.evaluate_llm(validation_set[0])
-    retriever_eval = user.evaluate_retriever(validation_set[0])
+    llm_eval = user.evaluate_hybrid_llm(validation_set[0])
+    retriever_eval = user.evaluate_hybrid_retriever(validation_set[0])
     logger.info("Evaluation completed. Returning results.")
     print("Retriever_eval", retriever_eval)
     return llm_eval, retriever_eval

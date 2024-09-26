@@ -5,6 +5,7 @@ services:
       dockerfile: app/Dockerfile
     volumes:
       - ./app:/app
+      - pdf_data:/data/raw   
     env_file:
       - .env
     depends_on:
@@ -31,4 +32,6 @@ services:
 
 volumes:
   qdrant_data:
+    driver: local
+  pdf_data:   
     driver: local

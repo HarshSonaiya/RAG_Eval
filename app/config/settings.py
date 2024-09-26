@@ -1,5 +1,7 @@
 import os
 from dotenv import load_dotenv
+from fastembed import SparseTextEmbedding
+from langchain_huggingface import HuggingFaceEmbeddings
 
 
 class AppSettings:
@@ -16,6 +18,7 @@ class AppSettings:
         """
         self.env_file = env_file
         self.load_settings()
+        self.initialize_models()
 
     def load_settings(self):
         """
@@ -27,8 +30,14 @@ class AppSettings:
         self.NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
         self.HYBRID_COLLECTION = os.getenv("HYBRID_COLLECTION_NAME")
         self.DENSE_COLLECTION = os.getenv("DENSE_COLLECTION_NAME")
-        self.DENSE_EMBEDDING_MODEL = os.getenv("DENSE_MODEL")
-        self.SPARSE_EMBEDDING_MODEL = os.getenv("SPARSE_MODEL")
+        self.DENSE_EMBEDDING_MODEL_NAME = os.getenv("DENSE_MODEL")
+        self.SPARSE_EMBEDDING_MODEL_NAME = os.getenv("SPARSE_MODEL")
+    
+    def initialize_models(self):
+
+        
+        self.DENSE_EMBEDDING_MODEL = HuggingFaceEmbeddings(model_name=self.DENSE_EMBEDDING_MODEL_NAME)
+        self.SPARSE_EMBEDDING_MODEL = SparseTextEmbedding(model_name=self.SPARSE_EMBEDDING_MODEL_NAME)
 
 
 settings = AppSettings()
