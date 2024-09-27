@@ -59,52 +59,87 @@ class RAGApp:
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
                 self.logger.exception(f"An error occurred: {e}")
-
+                
     def display_results(self, results, selected_rag_model):
         """Displays the results received from the backend."""
 
         if selected_rag_model == "all":
-            # Extract and display evaluations for all models
-            models = ["Hybrid Retriever", "HyDE Retriever", "Multiquery Retriever", "Dense Retriever"]
+            models = ["hybrid", "hyde", "dense", "multiquery"]
             evaluations = {}
 
+            # Extract LLM and Retriever evaluations for each model
             for model in models:
-                model_key = model.lower().replace(" ", "_")  # Convert model name to key format
-                llm_eval = results.get(f"{model_key}_llm_eval", [])
-                retriever_eval = results.get(f"{model_key}_retriever_eval", [])
+                result = results.get(model, {})
+                llm_eval = result.get(f"{model}_rag_llm_eval", [])
+                retriever_eval = result.get(f"{model}_rag_retriever_eval", [])
                 evaluations[model] = {
                     "llm_eval": [metric.strip() for metric in llm_eval[0].split(",")] if llm_eval else [],
                     "retriever_eval": [metric.strip() for metric in retriever_eval[0].split(",")] if retriever_eval else [],
-                    "response": results.get(f"{model_key}_response", "No response available.")
+                    "response": result.get(f"{model}_rag_response", "No response available.")
                 }
 
-            # Create two columns for evaluations side by side
-            col1, col2 = st.columns(2)
+            # Display LLM evaluations in a tabular format
+            st.subheader("LLM Evaluations (Side by Side)")
+            llm_table = {
+                "Model": [],
+                "Helpfulness": [],
+                "Correctness": [],
+                "Coherence": [],
+                "Complexity": [],
+                "Verbosity": []
+            }
 
-            with col1:
-                st.subheader("LLM Evaluation")
-                for model in models:
-                    st.write(f"**{model}:**")
-                    llm_eval_data = evaluations[model]["llm_eval"]
-                    if llm_eval_data:
-                        st.table(llm_eval_data)
-                    else:
-                        st.write("No LLM evaluation metrics available.")
-
-            with col2:
-                st.subheader("Retriever Evaluation")
-                for model in models:
-                    st.write(f"**{model}:**")
-                    retriever_eval_data = evaluations[model]["retriever_eval"]
-                    if retriever_eval_data:
-                        st.table(retriever_eval_data)
-                    else:
-                        st.write("No Retriever evaluation metrics available.")
-
-            # Display responses below the evaluations
-            st.subheader("Responses")
             for model in models:
-                st.write(f"**Response from {model}:**")
+                llm_eval_data = evaluations[model]["llm_eval"]
+                if llm_eval_data:
+                    llm_table["Model"].append(model.capitalize())
+                    for i, metric in enumerate(llm_eval_data):
+                        category, value = metric.split(":")
+                        llm_table[category.capitalize()].append(float(value))
+                else:
+                    # Fill with N/A for models without eval data
+                    llm_table["Model"].append(model.capitalize())
+                    llm_table["Helpfulness"].append("N/A")
+                    llm_table["Correctness"].append("N/A")
+                    llm_table["Coherence"].append("N/A")
+                    llm_table["Complexity"].append("N/A")
+                    llm_table["Verbosity"].append("N/A")
+
+            st.table(llm_table)
+
+            # Display Retriever evaluations in a tabular format
+            st.subheader("Retriever Evaluations (Side by Side)")
+            retriever_table = {
+                "Model": [],
+                "Helpfulness": [],
+                "Correctness": [],
+                "Coherence": [],
+                "Complexity": [],
+                "Verbosity": []
+            }
+
+            for model in models:
+                retriever_eval_data = evaluations[model]["retriever_eval"]
+                if retriever_eval_data:
+                    retriever_table["Model"].append(model.capitalize())
+                    for i, metric in enumerate(retriever_eval_data):
+                        category, value = metric.split(":")
+                        retriever_table[category.capitalize()].append(float(value))
+                else:
+                    # Fill with N/A for models without eval data
+                    retriever_table["Model"].append(model.capitalize())
+                    retriever_table["Helpfulness"].append("N/A")
+                    retriever_table["Correctness"].append("N/A")
+                    retriever_table["Coherence"].append("N/A")
+                    retriever_table["Complexity"].append("N/A")
+                    retriever_table["Verbosity"].append("N/A")
+
+            st.table(retriever_table)
+
+            # Display all RAG responses one after the other
+            st.subheader("RAG Responses")
+            for model in models:
+                st.write(f"**Response from {model.capitalize()} RAG:**")
                 st.write(evaluations[model]["response"])
 
         else:
@@ -113,7 +148,7 @@ class RAGApp:
             llm_eval = results.get(f"{selected_rag_model}_llm_eval", [])
             retriever_eval = results.get(f"{selected_rag_model}_retriever_eval", [])
 
-            st.subheader(f"Response from {self.rag_model}")
+            st.subheader(f"Response from {selected_rag_model.capitalize()} RAG")
             st.write(response)
 
             # Prepare evaluations

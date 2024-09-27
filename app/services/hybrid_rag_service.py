@@ -29,7 +29,7 @@ class HybridRagService:
         """Sanitize the input text to remove unwanted characters and excessive whitespace."""
         return re.sub(r'\s+', ' ', text.strip())
     
-    def index_hybrid_collection(self, chunks: List[Document]):
+    async def index_hybrid_collection(self, chunks: List[Document]):
         """
         Index the given list of Document chunks into the Qdrant hybrid collection.
         """

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from typing import List, Dict, Any
-from langchain.schema import Document
 from qdrant_client import QdrantClient 
 
 from services.pdf_service import PdfService
