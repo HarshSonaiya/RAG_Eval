@@ -1,12 +1,9 @@
 from config.settings import settings
 from qdrant_client import QdrantClient
 from langchain_qdrant import QdrantVectorStore
-from langchain.retrievers import MultiQueryRetriever
 from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager
 from utils.dense_collection import DenseCollection
-from uuid import uuid4
-
 
 # Initialize logger using LoggerFactory
 logger_factory = LoggerFactory()
@@ -36,7 +33,6 @@ class MultiQueryService:
         self.llm = LLMManager()
         
         # Create MultiQueryRetriever using the vector store and LLM
-        self.multi_query_retriever = MultiQueryRetriever.from_llm(llm=self.llm.llm, retriever=self.retriever)
 
     def multi_query_search(self, query: str, limit=5):
         """
@@ -54,4 +50,5 @@ class MultiQueryService:
 
         response = self.llm.llm.invoke(formatted_prompt)
         return response
+    
 

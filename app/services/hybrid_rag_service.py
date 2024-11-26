@@ -25,10 +25,6 @@ class HybridRagService:
         =========
         Answer in Markdown: """
     
-    def sanitize_content(self, text: str) -> str:
-        """Sanitize the input text to remove unwanted characters and excessive whitespace."""
-        return re.sub(r'\s+', ' ', text.strip())
-    
     async def index_hybrid_collection(self, chunks: List[Document]):
         """
         Index the given list of Document chunks into the Qdrant hybrid collection.
@@ -37,18 +33,15 @@ class HybridRagService:
         logger.info(f"Indexing {len(chunks)} documents into Qdrant Hybrid Collection.")
         for i, doc in enumerate(tqdm(chunks, total=len(chunks))):
             try: 
-                # Sanitize document content
-                clean_content = self.sanitize_content(doc.page_content)
-
                 # Create embeddings with fallback logic
                 try:
-                    dense_embedding = self.create_dense_vector(clean_content)
+                    dense_embedding = self.create_dense_vector(doc.page_content)
                 except Exception as e:
                     logger.exception(f"Error creating dense vector for document {i}: {e}")
                     dense_embedding = None  # Fallback to None
 
                 try:
-                    sparse_embedding = self.create_sparse_vector(clean_content)
+                    sparse_embedding = self.create_sparse_vector(doc.page_content)
                 except Exception as e:
                     logger.exception(f"Error creating sparse vector for document {i}: {e}")
                     sparse_embedding = None  # Fallback to None
@@ -58,7 +51,7 @@ class HybridRagService:
                     self.client.upsert(
                         collection_name=settings.HYBRID_COLLECTION,
                         points=[models.PointStruct(
-                            id=i,
+                            id=f"{doc.metadata['pdf_id']}",
                             vector={
                                 "dense": dense_embedding,
                                 "sparse": sparse_embedding
@@ -107,10 +100,12 @@ class HybridRagService:
         embeddings = list(settings.SPARSE_EMBEDDING_MODEL.embed([text]))[0]
         return models.SparseVector(indices=embeddings.indices.tolist(), values=embeddings.values.tolist())
 
-    def hybrid_search(self, query: str, limit=5):
+    def hybrid_search(self, query: str, selected_pdf_id, limit=5):
         """
         Perform a hybrid search based on the provided query.
         """
+        logger.info(f"Performing hybrid search for the selected pdf")
+
         dense_query = list(settings.DENSE_EMBEDDING_MODEL.embed_query(query))
         sparse_query = list(settings.SPARSE_EMBEDDING_MODEL.embed([query]))[0]
 
@@ -125,7 +120,9 @@ class HybridRagService:
                 models.Prefetch(query=sparse_query, using="sparse", limit=limit),
                 models.Prefetch(query=dense_query, using="dense", limit=limit)
             ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF)
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=limit,  # You can adjust the number of results
+            filter={"pdf_id": selected_pdf_id},  # Filter by pdf_id
         )
 
         documents = [point for point in results.points]

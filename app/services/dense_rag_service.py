@@ -36,7 +36,7 @@ class DenseRagService:
         )
         self.retriever = self.vector_store.as_retriever(search_type="mmr")
 
-    async def index_collection(self, chunks: List[Document]):
+    async def index_dense_collection(self, chunks: List[Document]):
         """
         Index the given list of Document chunks into the Qdrant dense collection.
         """
