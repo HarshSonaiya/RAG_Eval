@@ -1,10 +1,11 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from qdrant_client import QdrantClient 
-from uuid import uuid4
 from langchain.schema import Document
 from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain_core.stores import InMemoryByteStore
+import logging
+import uuid
 
 from services.pdf_service import PdfService
 from services.hybrid_rag_service import HybridRagService
@@ -12,49 +13,114 @@ from services.hyde_service import HyDEService
 from services.dense_rag_service import DenseRagService
 from services.multi_query_service import MultiQueryService
 from services.evaluation_service import  evaluate_hybrid_response, evaluate_response
-from config.logging_config import LoggerFactory  
+from utils.dense_collection import Collection
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class PdfController:
     """Handles PDF processing and retrieval endpoints."""
     
-    def __init__(self):
-        logger_factory = LoggerFactory()  
-        self.logger = logger_factory.get_logger("pdf_processing")
-        self.pdf_service = PdfService(self.logger)  
-
-    async def list_file(self):
-        file_info = await self.pdf_service.list_files()
-        return file_info
+    def __init__(self, client: QdrantClient):
+        self.client = client
+        self.pdf_service = PdfService(logger)
+        self.collection = Collection(client)
+        self.hybrid_rag_service = HybridRagService(client)
+        self.hyde_service = HyDEService(client)
+        self.dense_rag_service = DenseRagService(client)
+        # self.multi_query_service = MultiQueryService(client)
     
-    async def process_files(self, files: List[UploadFile] ) -> Any:
-        """Helper function to process PDF files and index the content."""
+    async def create_new_brain(self, brain_name: str = Form(...)):
+        """API to create a new brain."""
         try:
-                
-            chunks, file_uuid_mapping = await self.pdf_service.process_pdf(files)
-            
-            if not chunks:
-                self.logger.warning("No chunks were generated from the uploaded files.")
-                return file_uuid_mapping
-            # Generate and store embeddings in both collections
-            hybrid_service = HybridRagService(client)  # Replace `client` with your Qdrant or embedding service instance
-            dense_service = DenseRagService(client)
-
-            await hybrid_service.index_hybrid_collection(chunks)
-            await dense_service.index_dense_collection(chunks)
-            
-            self.logger.info(f"Embeddings generated and stored for file:")
-            return file_uuid_mapping
+            await self.collection.create_collections(brain_name)
+            return {"status": "success"}
         except Exception as e:
-            self.logger.exception("Error processing the PDF %s: %s")
-            raise RuntimeError(f"Failed to process PDF ")
+            logger.exception(f"Failed to create brain '{brain_name}': {e}")
+            raise HTTPException(status_code=500, detail="Error creating brain.")
+
+    async def list_brains(self):
+        try:
+            brain_info = await self.collection.list_brains()
+            logger.info(f"Brain info: {brain_info}")
+            return brain_info
+        except Exception as e:
+            logger.exception("Error listing brains: %s", e)
+            raise HTTPException(status_code=500, detail="Failed to retrieve brains list.")
+
+    async def list_files(self):
+        try:
+            file_info = await self.collection.list_files()
+            return file_info
+        except Exception as e:
+            logger.exception("Error listing files: %s", e)
+            raise HTTPException(status_code=500, detail="Failed to retrieve file list.")
+    
+    async def process_files(self, files: List[UploadFile], brain_id: str ) -> Any:
+        """
+        Process PDF files, check for duplicates in Qdrant and index the content.
+        
+        Args:
+            files (List[UploadFile]): List of uploaded PDF files.
+            brain_id (str): The brain's unique identifier.
+
+        Returns:
+            dict: A dictionary containing the status and file-to-UUID mapping.
+        """
+        try:
+            all_chunks = []
+            file_uuid_mapping = {}
+
+            # Remove the "hybrid@" prefix if it exists
+            if brain_id.startswith("hybrid@"):
+                brain_id = brain_id[7:]  
+            
+            logger.info("Starting to process PDF files for brain: %s", brain_id)
+
+            for file in files:
+                
+                existing_file_points = await self.collection.check_files(file.filename, brain_id)
+                
+                if existing_file_points:  
+                    logger.info(f"File {file.filename} already exists in the collection. Skipping.")
+                    continue
+
+                # Generate a unique ID for the PDF
+                pdf_id = str(uuid.uuid4())
+                file_uuid_mapping[file.filename] = pdf_id
+                logger.info("Generated unique ID for file %s: %s", file.filename, pdf_id)
+
+                # Extract content chunks from the file
+                chunks = await self.pdf_service.extract_content_from_pdf(file)
+
+                # Assign metadata to chunks
+                for chunk in chunks:
+                    chunk.metadata["pdf_id"] = pdf_id
+                    chunk.metadata["file_name"] = file.filename
+                    chunk.metadata["brain_id"] = brain_id
+
+                all_chunks.extend(chunks)
+                logger.info("File %s processed and indexed with %d chunks.", file.filename, len(chunks))
+            
+            if all_chunks: 
+                await self.hybrid_rag_service.index_hybrid_collection(all_chunks, brain_id)
+                await self.dense_rag_service.index_dense_collection(all_chunks, brain_id)
+            else :
+                logger.warning("No chunks to index.")
+
+        except Exception as e:
+            logger.exception("Error processing the PDF %s: %s")
+            raise HTTPException(status_code=500, detail="Failed to process files.")
 
     async def handle_exception(self, e: Exception) -> Dict[str, Any]:
         """Handle exceptions and return an appropriate error response."""
-
         raise HTTPException(status_code=500, detail=str(e))
     
-    async def send_for_hybrid_evaluation(self, retrieved_context: str, query: str, response: str) -> Dict[str, Any]:
+    async def send_for_hybrid_evaluation(
+        self, 
+        retrieved_context: str, 
+        query: str, response: str
+    ) -> Dict[str, Any]:
         """Send the response for evaluation and return the evaluation result."""
         evaluation_result = await evaluate_hybrid_response(retrieved_context, query, response)
         evaluation_contents = [
@@ -64,7 +130,12 @@ class PdfController:
         ]
         return evaluation_contents
     
-    async def send_for_evaluation(self, retrieved_context: str, query: str, response: str) -> Dict[str, Any]:
+    async def send_for_evaluation(
+        self, 
+        retrieved_context: str, 
+        query: str, 
+        response: str
+    ) -> Dict[str, Any]:
         """Send the response for evaluation and return the evaluation result."""
         evaluation_result = await evaluate_response(retrieved_context, query, response)
         evaluation_contents = [
@@ -74,32 +145,40 @@ class PdfController:
         ]
         return evaluation_contents
 
-    async def hybrid_rag_endpoint(self, query: str = Form(...), selected_pdf: str = Form(...)) -> Dict[str, Any]:
+    async def hybrid_rag_endpoint(
+        self, 
+        brain_id: str,        
+        payload: Dict[str, Any] 
+        ) -> Dict[str, Any]:
         """Handles requests for the hybrid RAG model."""
         try:    
-            if selected_pdf not in self.file_uuid_mapping:
-                raise ValueError(f"File {selected_pdf} not found in the system.")
+            query = payload.get("query")
+            selected_pdfs = payload.get("selected_pdfs", [])
 
-            selected_pdf_id = self.file_uuid_mapping[selected_pdf]
-            
-            self.logger.info("Starting retrieval process for selected PDF ID: %s", selected_pdf)
-            
-            self.logger.info("Begin Indexing in hybrid rag")
-            service = HybridRagService(client)
-                
-            self.logger.info("Begin Search in hybrid rag")
-            combined_context = service.hybrid_search(query, selected_pdf_id)
-            
+            # Remove the "hybrid@" prefix if it exists
+            if brain_id.startswith("hybrid@"):
+                brain_id = brain_id[7:]
+
+            # Ensure all selected PDFs are valid
+            selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
+
+            logger.info("Begin Search in hybrid rag")
+
+            combined_context = ""
+            for pdf_id in selected_pdf_ids:
+                context = self.hybrid_rag_service.hybrid_search(query, pdf_id, brain_id)
+                if context:
+                    for scored_point in context:
+                        combined_context += scored_point.payload['content'] + " "
             if not combined_context:
-                self.logger.warning("No context found for query: %s and PDF ID: %s", query, selected_pdf_id)
                 return {"error": "No context found for the given query and PDF."}
 
-            self.logger.info("Begin Response generation in hybrid rag")
-            response = service.generate_response(query, combined_context)
+            logger.info("Begin Response generation in hybrid rag")
+            response = self.hybrid_rag_service.generate_response(query, combined_context)
             response = response.content
             
             # Send the response for evaluation
-            self.logger.info("Begin evaluation in hybrid rag")
+            logger.info("Begin evaluation in hybrid rag")
             evaluation_results = await self.send_for_hybrid_evaluation(combined_context, query, response)
 
             return {
@@ -109,29 +188,46 @@ class PdfController:
             "hybrid_rag_retriever_eval": evaluation_results[1]
             }            
         except Exception as e:
-            self.logger.exception("Error in hybrid RAG endpoint: %s", str(e))
+            logger.exception("Error in hybrid RAG endpoint: %s", str(e))
             return await self.handle_exception(e)
 
-    async def hyde_rag_endpoint(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
+    async def hyde_rag_endpoint(
+        self,
+        brain_id: str,        
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Handles requests for the HyDE RAG model."""
         try:
-            chunks = await self.process_files(files)
-            dense_Service = DenseRagService(client)
-            if chunks :
-                await dense_Service.index_collection(chunks)
-            hyde_Service = HyDEService(client)
-            hypothetical_document = hyde_Service.generate_response(query, "")
-            self.logger.info("Hypothetical Document generated")
+            query = payload.get("query")
+            selected_pdfs = payload.get("selected_pdfs", [])
+
+             # Remove the "hybrid@" prefix if it exists
+            if brain_id.startswith("hybrid@"):
+                brain_id = brain_id[7:]
+
+            # Ensure all selected PDFs are valid
+            selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
+
+            hypothetical_document =self.hyde_service.generate_response(query, "")
             hypothetical_document = hypothetical_document.content
-            combined_context = hyde_Service.hyde_search(hypothetical_document)
-            combined_context = " ".join([doc.page_content for doc in combined_context])
+            logger.info("Hypothetical Document generated")
 
-            self.logger.info("Combined Context generated")
+            dense_query = self.hybrid_rag_service.create_dense_vector(query)
 
-            response = hyde_Service.generate_response(query, combined_context)
-            self.logger.info("Response generated")
-            
+            combined_context = ""
+            for pdf_id in selected_pdf_ids:
+                context = self.dense_rag_service.dense_search(dense_query, pdf_id, brain_id)
+                if context:
+                    for scored_point in context:
+                        combined_context += scored_point.payload['page_content'] + " "
+            if not combined_context:
+                return {"error": "No context found for the given query and PDF."}
+                                
+            logger.info("Combined Context", combined_context)
+
+            response = self.hyde_service.generate_response(query, combined_context)
             response = response.content 
+            logger.info("Response generated")
             
             # Send the response for evaluation
             evaluation_results = await self.send_for_evaluation(combined_context, query, response)
@@ -144,17 +240,36 @@ class PdfController:
         except Exception as e:
             return await self.handle_exception(e)
     
-    async def dense_rag_endpoint(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
+    async def dense_rag_endpoint(
+        self,
+        brain_id: str,        
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Handles requests for the HyDE RAG model."""
         try:
-            chunks = await self.process_files(files)
-            dense_Service = DenseRagService(client)
-            if chunks :
-                await dense_Service.index_collection(chunks)
-            combined_context = dense_Service.dense_search(query)
-            combined_context = " ".join([doc.page_content for doc in combined_context])
+            query = payload.get("query")
+            selected_pdfs = payload.get("selected_pdfs", [])
 
-            response = dense_Service.generate_response(query, combined_context)
+             # Remove the "hybrid@" prefix if it exists
+            if brain_id.startswith("hybrid@"):
+                brain_id = brain_id[7:]
+
+            # Ensure all selected PDFs are valid
+            selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
+            
+            dense_query = self.hybrid_rag_service.create_dense_vector(query)
+            combined_context = ""
+            for pdf_id in selected_pdf_ids:
+                context = self.dense_rag_service.dense_search(dense_query, pdf_id, brain_id)
+                if context:
+                    for scored_point in context:
+                        combined_context += scored_point.payload['page_content'] + " "
+            if not combined_context:
+                return {"error": "No context found for the given query and PDF."}
+                                
+            logger.info("Combined Context", combined_context)
+
+            response = self.dense_rag_service.generate_response(query, combined_context)
             response = response.content 
             
             # Send the response for evaluation
@@ -168,106 +283,109 @@ class PdfController:
         except Exception as e:
             return await self.handle_exception(e)
 
-    async def multiquery_rag_endpoint(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
-        """Handles requests for the Multiquery RAG model."""
-        try:
-            chunks = await self.process_files(files)
-            dense_Service = DenseRagService(client)
-            if chunks :
-                await dense_Service.index_collection(chunks)
-            multiquery = MultiQueryService(client)
-            combined_context = multiquery.retriever.invoke(query)
-            combined_context = " ".join([doc.page_content for doc in combined_context])
+    # async def multiquery_rag_endpoint( 
+    #     self,
+    #     brain_id: str,        
+    #     payload: Dict[str, Any]
+    # ) -> Dict[str, Any]:
+    #     """Handles requests for the Multiquery RAG model."""
+    #     try:
+    #         query = payload.get("query")
+    #         selected_pdfs = payload.get("selected_pdfs", [])
 
-            self.logger.info("Retriever Task Successfull")
-            response = multiquery.generate_response(query, combined_context)
-            response = response.content 
+    #          # Remove the "hybrid@" prefix if it exists
+    #         if brain_id.startswith("hybrid@"):
+    #             brain_id = brain_id[7:]
 
-            # # Send the response for evaluation
-            evaluation_results = await self.send_for_evaluation(combined_context, query, response)
-            return {
-            "multiquery_rag_response": response, 
-            "multiquery_rag_llm_eval": evaluation_results[0],
-            "multiquery_rag_retriever_eval": evaluation_results[1]
-            }
-        except Exception as e:
-            return await self.handle_exception(e)
-        
-    async def multivector_rag_endpoint(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
-        """Handles requests for the Multiquery RAG model."""
-        try:
-            multiquery = MultiQueryService(client)
-            self.logger.info("DOCS RECEIVED")
-            docs = await self.process_files(files, "multivector")
-            self.logger.info(f"{len(docs)}")
-
-            summary_query = "Generate a summary for the provided text" 
-            summaries = []
-            for doc in docs:
-                summaries.append(multiquery.generate_response(summary_query, doc.page_content))
-
-            doc_ids = [str(uuid4()) for _ in docs]
-
-            store = InMemoryByteStore()
-            id_key = "doc_id"
-
-            # The retriever (empty to start)
-            retriever = MultiVectorRetriever(
-                vectorstore=multiquery.vector_store,
-                byte_store=store,
-                id_key=id_key,
-            )
-
-            doc_ids = [str(uuid4()) for _ in docs]
-            summary_docs = [
-                Document(page_content=s, metadata={"doc_id": doc_ids[i]})
-                for i, s in enumerate(summaries)
-            ]
-
-            retriever.vectorstore.add_documents(summary_docs)
-
-            sub_docs = retriever.vectorstore.similarity_search("LSTMS")
-            print(f"Multivector Retriever Response: {sub_docs}")
+    #         # Ensure all selected PDFs are valid
+    #         selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
             
-            retrieved_docs = retriever.invoke("justice breyer")
-            print(f"Multivector Response: {retrieved_docs}")
+    #         combined_context = ""
+    #         for pdf_id in selected_pdf_ids:
+    #             context = self.multi_query_service.retriever.invoke(query)
+    #         combined_context = " ".join([doc.page_content for doc in combined_context])
 
-            # return {
-            # "multiquery_rag_response": response, 
-            # "multiquery_rag_llm_eval": evaluation_results[0],
-            # "multiquery_rag_retriever_eval": evaluation_results[1]
-            # }
-        except Exception as e:
-            return await self.handle_exception(e)
+    #         logger.info("Retriever Task Successfull")
+    #         response = self.multi_query_service.generate_response(query, combined_context)
+    #         response = response.content 
+
+    #         # # Send the response for evaluation
+    #         evaluation_results = await self.send_for_evaluation(combined_context, query, response)
+    #         return {
+    #         "multiquery_rag_response": response, 
+    #         "multiquery_rag_llm_eval": evaluation_results[0],
+    #         "multiquery_rag_retriever_eval": evaluation_results[1]
+    #         }
+    #     except Exception as e:
+    #         return await self.handle_exception(e)
+        
+    # # async def multivector_rag_endpoint(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
+    #     """Handles requests for the Multiquery RAG model."""
+    #     try:
+    #         multiquery = MultiQueryService(client)
+    #         logger.info("DOCS RECEIVED")
+    #         docs = await self.process_files(files, "multivector")
+    #         logger.info(f"{len(docs)}")
+
+    #         summary_query = "Generate a summary for the provided text" 
+    #         summaries = []
+    #         for doc in docs:
+    #             summaries.append(multiquery.generate_response(summary_query, doc.page_content))
+
+    #         doc_ids = [str(uuid4()) for _ in docs]
+
+    #         store = InMemoryByteStore()
+    #         id_key = "doc_id"
+
+    #         # The retriever (empty to start)
+    #         retriever = MultiVectorRetriever(
+    #             vectorstore=multiquery.vector_store,
+    #             byte_store=store,
+    #             id_key=id_key,
+    #         )
+
+    #         doc_ids = [str(uuid4()) for _ in docs]
+    #         summary_docs = [
+    #             Document(page_content=s, metadata={"doc_id": doc_ids[i]})
+    #             for i, s in enumerate(summaries)
+    #         ]
+
+    #         retriever.vectorstore.add_documents(summary_docs)
+
+    #         sub_docs = retriever.vectorstore.similarity_search("LSTMS")
+    #         print(f"Multivector Retriever Response: {sub_docs}")
+            
+    #         retrieved_docs = retriever.invoke("justice breyer")
+    #         print(f"Multivector Response: {retrieved_docs}")
+
+    #         # return {
+    #         # "multiquery_rag_response": response, 
+    #         # "multiquery_rag_llm_eval": evaluation_results[0],
+    #         # "multiquery_rag_retriever_eval": evaluation_results[1]
+    #         # }
+    #     except Exception as e:
+    #         return await self.handle_exception(e)
             
     async def all_endpoints(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
         """Handles requests for the Multiquery RAG model."""
         try:
-            # Process the files
-            chunks = await self.process_files(files)
-            dense_Service = DenseRagService(client)
-            service = HybridRagService(client)  
-
-            if chunks :
-                await dense_Service.index_collection(chunks)
-                await service.index_hybrid_collection(chunks)
-
+            
             # Call each endpoint method and collect the responses
-            hybrid_response = await self.hybrid_rag_endpoint(files, query)
-            self.logger.info("Hybrid RAG Implemented")
-            hyde_response = await self.hyde_rag_endpoint(files, query)
-            self.logger.info("HyDE RAG Implemented")
-            dense_response = await self.dense_rag_endpoint(files, query)
-            self.logger.info("Dense RAG Implemented")
-            multiquery_response = await self.multiquery_rag_endpoint(files, query)
-            self.logger.info("ALL RAGS Implemented")
+            hybrid_response = await self.hybrid_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            logger.info("Hybrid RAG Implemented")
+            hyde_response = await self.hyde_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            logger.info("HyDE RAG Implemented")
+            dense_response = await self.dense_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            logger.info("Dense RAG Implemented")
+            # multiquery_response = await self.multiquery_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            # logger.info("ALL RAGS Implemented")
 
             # Combine the responses into a single dictionary
             return {
                 "hybrid": hybrid_response,
                 "hyde": hyde_response,
                 "dense": dense_response,
-                "multiquery": multiquery_response,
+                # "multiquery": multiquery_response,
             }
         except Exception as e:
             return await self.handle_exception(e)
@@ -276,16 +394,19 @@ class PdfController:
 # Create an APIRouter to register the routes
 router = APIRouter()
 
-# Create an instance of PdfController with injected dependencies
-pdf_controller = PdfController()
 # Create Qdrant client instance
 client = QdrantClient(url="http://qdrant:6333", port=6333)
 
+# Create an instance of PdfController with injected dependencies
+pdf_controller = PdfController(client)
+
 # Register the routes with the router
-router.post("/api/upload")(pdf_controller.process_files)
-router.get("/api/list-files")(pdf_controller.list_file)
-router.post("/api/hybrid_rag")(pdf_controller.hybrid_rag_endpoint)
-router.post("/api/hyde_rag")(pdf_controller.hyde_rag_endpoint)
-router.post("/api/dense_rag")(pdf_controller.dense_rag_endpoint)
-router.post("/api/multiquery_rag")(pdf_controller.multiquery_rag_endpoint)
-router.post("/api/all")(pdf_controller.all_endpoints)
+router.post("/api/create-brain")(pdf_controller.create_new_brain)
+router.get("/api/list-brains")(pdf_controller.list_brains)
+router.post("/api/{brain_id}/upload")(pdf_controller.process_files)
+router.get("/api/{brain_id}/list-files")(pdf_controller.list_files)
+router.post("/api/{brain_id}/hybrid_rag")(pdf_controller.hybrid_rag_endpoint)
+router.post("/api/{brain_id}/hyde_rag")(pdf_controller.hyde_rag_endpoint)
+router.post("/api/{brain_id}/dense_rag")(pdf_controller.dense_rag_endpoint)
+# router.post("/api/{brain_id}/multiquery_rag")(pdf_controller.multiquery_rag_endpoint)
+router.post("/api/{brain_id}/all")(pdf_controller.all_endpoints)

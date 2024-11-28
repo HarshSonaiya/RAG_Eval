@@ -1,7 +1,7 @@
 from config.settings import settings
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 from langchain.schema import Document
-from utils.dense_collection import DenseCollection
+from utils.dense_collection import Collection
 from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from typing import List 
@@ -26,30 +26,32 @@ class DenseRagService:
         {context}
         =========
         Answer in Markdown: """
-        self.collection = DenseCollection(client, settings.DENSE_COLLECTION)
-        self.collection.create_dense_collection()
-        self.vector_store = QdrantVectorStore(
-            client=self.client, 
-            collection_name=settings.DENSE_COLLECTION, 
-            embedding = settings.DENSE_EMBEDDING_MODEL,
-            vector_name= "dense",
-        )
-        self.retriever = self.vector_store.as_retriever(search_type="mmr")
 
-    async def index_dense_collection(self, chunks: List[Document]):
-        """
-        Index the given list of Document chunks into the Qdrant dense collection.
-        """
-        uuids = [str(uuid4()) for _ in range(len(chunks))]
-        self.vector_store.add_documents(documents=chunks, ids= uuids)
-
-    def dense_search(self, query: str):
+    def dense_search(self, query: str,pdf_id: str, brain_id: str):
         """
         Perform a dense search based on the provided query using QdrantVectorStore.
         """
-        results = self.retriever.invoke(query)
-        logger.info(f"Dense Search Completed. {results}")
-        return results
+        collection_info = self.client.get_collection(collection_name=brain_id)
+        logger.info("Collection info", collection_info)
+        logger.info("Begin dense Search", len(query), query)
+
+        results = self.client.query_points(
+            collection_name=brain_id,
+            query=query,  # Query vector
+            using = "dense",
+            query_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.pdf_id",  # Filter by `pdf_id`
+                        match=models.MatchValue(value=pdf_id)
+                    )
+                ]
+            ),
+            limit = 2
+        )
+        documents = [point for point in results.points]
+        logger.info(f"Dense Search Completed. {len(documents)}")
+        return documents
 
     def generate_response(self, question: str, context: str):
         """

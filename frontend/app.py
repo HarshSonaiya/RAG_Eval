@@ -1,6 +1,7 @@
-import streamlit as st
 import requests
-from config.logging_config import LoggerFactory
+import streamlit as st
+import logging 
+import json
 
 class RAGApp:
     """
@@ -11,16 +12,76 @@ class RAGApp:
         """
         Initializes the RAGApp, sets up the logger, and configures the Streamlit app.
         """
-
-        self.logger = LoggerFactory().get_logger("streamlit")
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger("streamlit")
         self.file_list = []
         self.file_uuid_mapping = {}
+        self.brain_id = None
         self.setup_ui()
 
     def setup_ui(self):
         """Sets up the user interface for the Streamlit app."""
 
         st.title("RAG Pipeline PDF Processing and Comparison")
+
+        # Section to create a new brain
+        st.subheader("Create a New Brain")
+        brain_name = st.text_input("Enter a name for the new brain:")
+        
+        if st.button("Create Brain"):
+            if brain_name.strip():
+                self.create_new_brain(brain_name.strip())
+        else:
+            st.warning("Please enter a brain name.")
+
+        # After creating a new brain, show the updated list of brains
+        st.header("Select a Brain")
+        brains = self.fetch_brain_list()
+
+        if isinstance(brains, list) and brains:
+            # Display the list of brains
+            brain_names = [brain["brain_name"] for brain in brains if "brain_name" in brain]
+            selected_brain = st.selectbox("Select a brain to work with:", options=set(brain_names))
+
+            # Find the corresponding brain ID for the selected brain
+            self.brain_id = next((brain["brain_id"] for brain in brains if brain["brain_name"] == selected_brain), None)
+            
+            if self.brain_id:
+                st.write(self.brain_id)
+                self.handle_pdf_upload_and_query()
+            else:
+                st.warning("Please select a valid brain to proceed.")
+        else:
+            st.warning("No brains available. Please create a brain first.")
+        
+    def create_new_brain(self, brain_name):
+        """Creates a new brain by sending a request to the backend."""
+        with st.spinner(f"Creating brain: {brain_name}..."):
+            try:
+                response = requests.post("http://backend:9000/api/create-brain", data={"brain_name": brain_name})
+                if response.status_code == 200:
+                    st.success(f"New brain '{brain_name}' created successfully! Select this brain to upload PDFs.")
+                else:
+                    st.error(f"Error creating brain: {response.text}")
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+                self.logger.exception(f"An error occurred while creating brain: {e}")
+    
+    def fetch_brain_list(self):
+        """Fetches the list of available brains."""
+        try:
+            response = requests.get("http://backend:9000/api/list-brains")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                st.error(f"Error fetching brain list: {response.text}")
+                return []
+        except Exception as e:
+            st.error(f"Could not connect to the backend: {str(e)}")
+            return []
+        
+    def handle_pdf_upload_and_query(self):
+        """Handles PDF upload and query input when a brain is selected."""
 
         st.header("Upload PDF Documents")
         uploaded_pdfs = st.file_uploader(
@@ -38,14 +99,19 @@ class RAGApp:
         st.header("Select PDFs for Query")
         self.file_list = self.fetch_file_list()
         if self.file_list:
-            filenames = [file_info["filename"] for file_info in self.file_list]
-            selected_pdfs = st.selectbox("Select a PDF:", options=filenames)
+            filenames = [file_info["file_name"] for file_info in self.file_list]
+            selected_pdfs = st.multiselect("Select a PDF:", options=filenames)
+            selected_pdf_data = [
+                {"file_name": file_info["file_name"], "file_id": file_info["file_id"]}
+                for file_info in self.file_list
+                if file_info["file_name"] in selected_pdfs
+            ]
         else:
             selected_pdfs = []
             st.warning("No PDFs available. Please upload some first.")
         
         st.header("Enter Your Query")
-        user_query = st.text_area("Enter your question here", height=50)
+        user_query = st.text_area("Enter your question here", height=100)
         rag_model = st.selectbox("Choose the RAG model to process your query:", options=[
             "Hybrid Retriever", 
             "HyDE Pipeline with Dense Retriver", 
@@ -54,10 +120,10 @@ class RAGApp:
             "All"
         ])
 
-        if st.button("Submit"):
-            if selected_pdfs and user_query.strip():
-                self.process_request(selected_pdfs, user_query, rag_model)
-            elif not selected_pdfs:
+        if st.button("Submit Query"):
+            if selected_pdf_data and user_query.strip():
+                self.process_request(selected_pdf_data, user_query, rag_model)
+            elif not selected_pdf_data:
                 st.warning("Please select at least one PDF.")
             else:
                 st.warning("Please enter a query.")
@@ -68,7 +134,7 @@ class RAGApp:
             files = [('files', (uploaded_file.name, uploaded_file, 'application/pdf')) for uploaded_file in uploaded_files]
 
             try:
-                response = requests.post(f"http://backend:9000/api/upload", files=files)
+                response = requests.post(f"http://backend:9000/api/{self.brain_id}/upload", files=files)
 
                 if response.status_code == 200:
                     st.success(f"Files uploaded and processed successfully.")
@@ -79,12 +145,12 @@ class RAGApp:
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
                 self.logger.exception(f"An error occurred: {e}")
-            
+
     def fetch_file_list(self):
         """Fetches the list of uploaded PDFs from the backend."""
         with st.spinner("Fetching the list of available PDFs..."):
             try:
-                response = requests.get("http://backend:9000/api/list-files")
+                response = requests.get(f"http://backend:9000/api/{self.brain_id}/list-files")
                 if response.status_code == 200:
                     return response.json()
                 else:
@@ -107,9 +173,14 @@ class RAGApp:
                     "All": "all"
                 }.get(rag_model)
 
+                payload = {
+                    "query": user_query,
+                    "selected_pdfs": selected_pdfs,  
+                }
+
                 response = requests.post(
-                    f"http://backend:9000/api/{selected_rag_model}", 
-                    data={"query": user_query, "selected_pdf": selected_pdfs}
+                    f"http://backend:9000/api/{self.brain_id}/{selected_rag_model}", 
+                    json=payload
                 )
 
                 if response.status_code == 200:

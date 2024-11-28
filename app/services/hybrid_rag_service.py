@@ -5,6 +5,7 @@ from tqdm import tqdm
 from typing import List 
 from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager  
+import uuid
 
 import re
 
@@ -25,12 +26,12 @@ class HybridRagService:
         =========
         Answer in Markdown: """
     
-    async def index_hybrid_collection(self, chunks: List[Document]):
+    async def index_hybrid_collection(self, chunks: List[Document], brain_id: str):
         """
         Index the given list of Document chunks into the Qdrant hybrid collection.
         """
-        self.create_hybrid_collection()  # Create collection if it doesn't exist
         logger.info(f"Indexing {len(chunks)} documents into Qdrant Hybrid Collection.")
+        
         for i, doc in enumerate(tqdm(chunks, total=len(chunks))):
             try: 
                 # Create embeddings with fallback logic
@@ -49,16 +50,16 @@ class HybridRagService:
                 # Only upsert if embeddings were created successfully
                 if dense_embedding is not None and sparse_embedding is not None:
                     self.client.upsert(
-                        collection_name=settings.HYBRID_COLLECTION,
+                        collection_name=f"hybrid@{brain_id}",
                         points=[models.PointStruct(
-                            id=f"{doc.metadata['pdf_id']}",
+                            id=str(uuid.uuid4()),
                             vector={
                                 "dense": dense_embedding,
                                 "sparse": sparse_embedding
                             },
                             payload={
                                 "content": doc.page_content,
-                                "metadata": doc.metadata
+                                "metadata": doc.metadata,
                             }
                         )]
                     )
@@ -69,22 +70,6 @@ class HybridRagService:
                 logger.exception(f"Error processing document {i}: {e}")
 
         logger.info(f"Indexed {len(chunks)} documents into Qdrant Hybrid Collection.")
-
-    def create_hybrid_collection(self):
-        """
-        Create a hybrid collection in Qdrant if it does not exist.
-        """
-        if not self.client.collection_exists(collection_name=settings.HYBRID_COLLECTION):
-            self.client.create_collection(
-                collection_name=settings.HYBRID_COLLECTION,
-                vectors_config={
-                    'dense': models.VectorParams(size=768, distance=models.Distance.COSINE),
-                },
-                sparse_vectors_config={
-                    "sparse": models.SparseVectorParams(),
-                }
-            )
-            logger.info(f"Created hybrid collection '{settings.HYBRID_COLLECTION}' in Qdrant.")
 
     def create_dense_vector(self, text: str):
         """
@@ -100,7 +85,7 @@ class HybridRagService:
         embeddings = list(settings.SPARSE_EMBEDDING_MODEL.embed([text]))[0]
         return models.SparseVector(indices=embeddings.indices.tolist(), values=embeddings.values.tolist())
 
-    def hybrid_search(self, query: str, selected_pdf_id, limit=5):
+    def hybrid_search(self, query: str, selected_pdf_id: str, brain_id: str, limit=5):
         """
         Perform a hybrid search based on the provided query.
         """
@@ -115,18 +100,24 @@ class HybridRagService:
         )
 
         results = self.client.query_points(
-            collection_name=settings.HYBRID_COLLECTION,
+            collection_name=f"hybrid@{brain_id}",
             prefetch=[
                 models.Prefetch(query=sparse_query, using="sparse", limit=limit),
                 models.Prefetch(query=dense_query, using="dense", limit=limit)
             ],
             query=models.FusionQuery(fusion=models.Fusion.RRF),
-            limit=limit,  # You can adjust the number of results
-            filter={"pdf_id": selected_pdf_id},  # Filter by pdf_id
+            query_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.pdf_id",  
+                        match=models.MatchValue(value=selected_pdf_id)
+                    )
+                ]
+            )
         )
 
         documents = [point for point in results.points]
-        logger.info("Results generated")
+        logger.info("Results generated", len(documents))
         return documents
 
     def generate_response(self, question: str, context: str):

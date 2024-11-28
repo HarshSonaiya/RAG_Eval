@@ -4,7 +4,7 @@ from langchain.schema import Document
 from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager
-from utils.dense_collection import DenseCollection
+from utils.dense_collection import Collection
 from uuid import uuid4
 from typing import List
 
@@ -27,15 +27,14 @@ class HyDEService:
         {context}
         =========
         Answer in Markdown: """
-        self.collection = DenseCollection(client, settings.DENSE_COLLECTION)
-        self.collection.create_dense_collection()
-        self.vector_store = QdrantVectorStore(
-            client=self.client, 
-            collection_name=settings.DENSE_COLLECTION, 
-            embedding = settings.DENSE_EMBEDDING_MODEL,
-            vector_name= "dense",
-        )        
-        self.retriever = self.vector_store.as_retriever(search_type="mmr")
+        # self.collection = Collection(client)
+        # self.vector_store = QdrantVectorStore(
+        #     client=self.client, 
+        #     collection_name=settings.DENSE_COLLECTION, 
+        #     embedding = settings.DENSE_EMBEDDING_MODEL,
+        #     vector_name= "dense",
+        # )        
+        # self.retriever = self.vector_store.as_retriever(search_type="mmr")
 
     async def index_collection(self, chunks: List[Document]):
         """

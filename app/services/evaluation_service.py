@@ -69,9 +69,9 @@ class TestSetGenerator:
     
     def evaluate_hybrid_llm(self, validation_set):
         """Evaluates the language model using the provided validation set."""
-        logger.info(f"Evaluating LLM with the provided validation set.{validation_set['retrieved_docs']} and {type(validation_set['retrieved_docs'])}")
+        logger.info(f"Evaluating LLM with the provided validation set type: {type(validation_set['retrieved_docs'])}")
 
-        retrieved_docs = "\n\n".join(doc.payload['content'] for doc in validation_set["retrieved_docs"])
+        # retrieved_docs = "\n\n".join(doc.payload['content'] for doc in validation_set["retrieved_docs"])
 
         try:
             completion = self.client.chat.completions.create(
@@ -81,7 +81,7 @@ class TestSetGenerator:
                         "role": "user",
                         "content": f"""
                         user_query: {validation_set["question"]} Based on the below context answer the user's query
-                        context: {retrieved_docs}
+                        context: {validation_set["retrieved_docs"]}
                         Expected Answer: {validation_set["ground_truth"]}
                         """
                     },
@@ -100,7 +100,6 @@ class TestSetGenerator:
         
     def evaluate_llm(self, validation_set):
         """Evaluates the language model using the provided validation set."""
-
 
         try:
             completion = self.client.chat.completions.create(
@@ -165,7 +164,7 @@ class TestSetGenerator:
         logger.info(f"Expected Answer: {validation_set['ground_truth']}")
         logger.info(f"Retrieved Docs: {validation_set['retrieved_docs']}")
 
-        retrieved_docs = "\n\n".join(doc.payload['content'] for doc in validation_set["retrieved_docs"])
+        # retrieved_docs = "\n\n".join(doc.payload['content'] for doc in validation_set["retrieved_docs"])
 
         try:
             completion = self.client.chat.completions.create(
@@ -180,7 +179,7 @@ class TestSetGenerator:
                     },
                     {
                         "role": "assistant",
-                        "content": retrieved_docs
+                        "content": validation_set["retrieved_docs"]
                     }
                 ]
             )
@@ -243,7 +242,6 @@ async def evaluate_response(retrieved: str, query: str, llm_response):
     ground_truth = user.generate_ground_truth(query)
 
     cleaned_docs = clean_and_truncate_input(retrieved)
-
 
     validation_set = [{
         "question": query,
