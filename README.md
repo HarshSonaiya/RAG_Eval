@@ -20,7 +20,7 @@ for performance analysis.
     
 **2. Workspace and PDF Selection:**
   - Select a specific workspace for querying and narrowing down the scope by choosing single, multiple, or all PDFs within that workspace.
-  - 
+    
 **3. Retriever Testing:**
   - Compare and analyze performance across Dense, Hybrid, Multi-query, and other retrievers.
     
@@ -89,14 +89,14 @@ docker-compose up --build
 
 ## 📚 API Documentation
 
-1. /create-brain: Create Workspace for uploading PDFs.
-2. /list-brains: List down all the created workspaces.
-3. /upload: Upload PDF Files for indexing.
-4. /list-files: List down all the uploaded PDF Files in the selected workspace.
-5. /hybrid_rag: Process query with hybrid retriever in traditional RAG pipeline.
-6. /hybde_rag: Process query with dense retriever in HyDE RAG pipeline.
-7. /dense_rag: Process query with dense retriever in traditional rag pipeline.
-8. /all: Process all the retrievers.
+1. `/create-brain:` Create Workspace for uploading PDFs.
+2. `/list-brains:` List down all the created workspaces.
+3. `/upload:` Upload PDF Files for indexing.
+4. `/list-files:` List down all the uploaded PDF Files in the selected workspace.
+5. `/hybrid_rag:` Process query with hybrid retriever in traditional RAG pipeline.
+6. `/hybde_rag:` Process query with dense retriever in HyDE RAG pipeline.
+7. `/dense_rag:` Process query with dense retriever in traditional rag pipeline.
+8. `/all:` Process all the retrievers.
 
 ---
 
@@ -104,7 +104,7 @@ docker-compose up --build
 
 This project was made possible through the invaluable guidance and mentorship of:
 
-- **[Rahul Parmar]** (https://github.com/therahulparmar)
-- **[Keval Dekivadiya]** (https://github.com/kevaldekivadiya2415)
+- **Rahul Parmar** (https://github.com/therahulparmar)
+- **Keval Dekivadiya** (https://github.com/kevaldekivadiya2415)
 
 ---
