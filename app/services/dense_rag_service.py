@@ -1,7 +1,7 @@
 from config.settings import settings
 from qdrant_client import QdrantClient, models
 from langchain.schema import Document
-from RAG_Eval.app.utils.collection import Collection
+from utils.collection import Collection
 from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from typing import List 

@@ -11,9 +11,9 @@ from services.pdf_service import PdfService
 from services.hybrid_rag_service import HybridRagService
 from services.hyde_service import HyDEService
 from services.dense_rag_service import DenseRagService
-from services.multi_query_service import MultiQueryService
+# from services.multi_query_service import MultiQueryService
 from services.evaluation_service import  evaluate_hybrid_response, evaluate_response
-from RAG_Eval.app.utils.collection import Collection
+from utils.collection import Collection
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
