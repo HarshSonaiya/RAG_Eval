@@ -1,7 +1,7 @@
 from config.settings import settings
 from qdrant_client import QdrantClient, models
 from langchain.schema import Document
-from utils.dense_collection import Collection
+from RAG_Eval.app.utils.collection import Collection
 from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from typing import List 
@@ -37,17 +37,16 @@ class DenseRagService:
 
         results = self.client.query_points(
             collection_name=brain_id,
-            query=query,  # Query vector
+            query=query,  
             using = "dense",
             query_filter=models.Filter(
                 must=[
                     models.FieldCondition(
-                        key="metadata.pdf_id",  # Filter by `pdf_id`
+                        key="metadata.pdf_id",  
                         match=models.MatchValue(value=pdf_id)
                     )
                 ]
             ),
-            limit = 2
         )
         documents = [point for point in results.points]
         logger.info(f"Dense Search Completed. {len(documents)}")

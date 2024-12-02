@@ -4,7 +4,7 @@ from langchain.schema import Document
 from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager
-from utils.dense_collection import Collection
+from RAG_Eval.app.utils.collection import Collection
 from uuid import uuid4
 from typing import List
 

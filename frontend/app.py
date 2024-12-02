@@ -31,9 +31,7 @@ class RAGApp:
         if st.button("Create Brain"):
             if brain_name.strip():
                 self.create_new_brain(brain_name.strip())
-        else:
-            st.warning("Please enter a brain name.")
-
+       
         # After creating a new brain, show the updated list of brains
         st.header("Select a Brain")
         brains = self.fetch_brain_list()
@@ -47,7 +45,6 @@ class RAGApp:
             self.brain_id = next((brain["brain_id"] for brain in brains if brain["brain_name"] == selected_brain), None)
             
             if self.brain_id:
-                st.write(self.brain_id)
                 self.handle_pdf_upload_and_query()
             else:
                 st.warning("Please select a valid brain to proceed.")
@@ -93,19 +90,35 @@ class RAGApp:
         if st.button("Process Uploaded PDFs"):
             if uploaded_pdfs:
                 self.process_uploaded_pdfs(uploaded_pdfs)
+                self.file_list = self.fetch_file_list()
             else:
                 st.info("No PDFs uploaded. Moving on to the query step.")
         
         st.header("Select PDFs for Query")
-        self.file_list = self.fetch_file_list()
+        self.file_list = self.fetch_file_list() if not self.file_list else self.file_list
+
         if self.file_list:
             filenames = [file_info["file_name"] for file_info in self.file_list]
-            selected_pdfs = st.multiselect("Select a PDF:", options=filenames)
-            selected_pdf_data = [
-                {"file_name": file_info["file_name"], "file_id": file_info["file_id"]}
-                for file_info in self.file_list
-                if file_info["file_name"] in selected_pdfs
-            ]
+            filenames.insert(0, "All PDFs")
+
+            selected_pdfs = st.multiselect(
+                "Select a PDF:", 
+                options=filenames,
+                default=["All PDFs"]
+            )
+
+            if "All PDFs" in selected_pdfs:
+                selected_pdf_data = [
+                    {"file_name": file_info["file_name"], "file_id": file_info["file_id"]}
+                    for file_info in self.file_list
+                ]
+                st.info("Query will be searched across all PDFs.")
+            else:
+                selected_pdf_data = [
+                    {"file_name": file_info["file_name"], "file_id": file_info["file_id"]}
+                    for file_info in self.file_list
+                    if file_info["file_name"] in selected_pdfs
+                ]
         else:
             selected_pdfs = []
             st.warning("No PDFs available. Please upload some first.")
@@ -115,7 +128,7 @@ class RAGApp:
         rag_model = st.selectbox("Choose the RAG model to process your query:", options=[
             "Hybrid Retriever", 
             "HyDE Pipeline with Dense Retriver", 
-            "Multiquery Retriever", 
+            # "Multiquery Retriever", 
             "Dense Retriever",  
             "All"
         ])
@@ -168,7 +181,7 @@ class RAGApp:
                 selected_rag_model = {
                     "Hybrid Retriever": "hybrid_rag",
                     "HyDE Pipeline with Dense Retriver": "hyde_rag",
-                    "Multiquery Retriever": "multiquery_rag",
+                    # "Multiquery Retriever": "multiquery_rag",
                     "Dense Retriever": "dense_rag",
                     "All": "all"
                 }.get(rag_model)

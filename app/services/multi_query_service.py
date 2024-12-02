@@ -3,7 +3,7 @@ from qdrant_client import QdrantClient
 from langchain_qdrant import QdrantVectorStore
 from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager
-from utils.dense_collection import Collection
+from RAG_Eval.app.utils.collection import Collection
 
 # Initialize logger using LoggerFactory
 logger_factory = LoggerFactory()

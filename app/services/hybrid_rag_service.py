@@ -50,7 +50,7 @@ class HybridRagService:
                 # Only upsert if embeddings were created successfully
                 if dense_embedding is not None and sparse_embedding is not None:
                     self.client.upsert(
-                        collection_name=f"hybrid@{brain_id}",
+                        collection_name=brain_id,
                         points=[models.PointStruct(
                             id=str(uuid.uuid4()),
                             vector={
@@ -100,7 +100,7 @@ class HybridRagService:
         )
 
         results = self.client.query_points(
-            collection_name=f"hybrid@{brain_id}",
+            collection_name=brain_id,
             prefetch=[
                 models.Prefetch(query=sparse_query, using="sparse", limit=limit),
                 models.Prefetch(query=dense_query, using="dense", limit=limit)

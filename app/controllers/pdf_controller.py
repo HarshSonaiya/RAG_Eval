@@ -13,7 +13,7 @@ from services.hyde_service import HyDEService
 from services.dense_rag_service import DenseRagService
 from services.multi_query_service import MultiQueryService
 from services.evaluation_service import  evaluate_hybrid_response, evaluate_response
-from utils.dense_collection import Collection
+from RAG_Eval.app.utils.collection import Collection
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,9 +48,9 @@ class PdfController:
             logger.exception("Error listing brains: %s", e)
             raise HTTPException(status_code=500, detail="Failed to retrieve brains list.")
 
-    async def list_files(self):
+    async def list_files(self, brain_id: str):
         try:
-            file_info = await self.collection.list_files()
+            file_info = await self.collection.list_files(brain_id)
             return file_info
         except Exception as e:
             logger.exception("Error listing files: %s", e)
@@ -71,10 +71,6 @@ class PdfController:
             all_chunks = []
             file_uuid_mapping = {}
 
-            # Remove the "hybrid@" prefix if it exists
-            if brain_id.startswith("hybrid@"):
-                brain_id = brain_id[7:]  
-            
             logger.info("Starting to process PDF files for brain: %s", brain_id)
 
             for file in files:
@@ -104,7 +100,6 @@ class PdfController:
             
             if all_chunks: 
                 await self.hybrid_rag_service.index_hybrid_collection(all_chunks, brain_id)
-                await self.dense_rag_service.index_dense_collection(all_chunks, brain_id)
             else :
                 logger.warning("No chunks to index.")
 
@@ -155,10 +150,6 @@ class PdfController:
             query = payload.get("query")
             selected_pdfs = payload.get("selected_pdfs", [])
 
-            # Remove the "hybrid@" prefix if it exists
-            if brain_id.startswith("hybrid@"):
-                brain_id = brain_id[7:]
-
             # Ensure all selected PDFs are valid
             selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
 
@@ -201,10 +192,6 @@ class PdfController:
             query = payload.get("query")
             selected_pdfs = payload.get("selected_pdfs", [])
 
-             # Remove the "hybrid@" prefix if it exists
-            if brain_id.startswith("hybrid@"):
-                brain_id = brain_id[7:]
-
             # Ensure all selected PDFs are valid
             selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
 
@@ -219,7 +206,7 @@ class PdfController:
                 context = self.dense_rag_service.dense_search(dense_query, pdf_id, brain_id)
                 if context:
                     for scored_point in context:
-                        combined_context += scored_point.payload['page_content'] + " "
+                        combined_context += scored_point.payload['content'] + " "
             if not combined_context:
                 return {"error": "No context found for the given query and PDF."}
                                 
@@ -250,20 +237,17 @@ class PdfController:
             query = payload.get("query")
             selected_pdfs = payload.get("selected_pdfs", [])
 
-             # Remove the "hybrid@" prefix if it exists
-            if brain_id.startswith("hybrid@"):
-                brain_id = brain_id[7:]
-
             # Ensure all selected PDFs are valid
             selected_pdf_ids = [pdf["file_id"] for pdf in selected_pdfs]
             
             dense_query = self.hybrid_rag_service.create_dense_vector(query)
+            
             combined_context = ""
             for pdf_id in selected_pdf_ids:
                 context = self.dense_rag_service.dense_search(dense_query, pdf_id, brain_id)
                 if context:
                     for scored_point in context:
-                        combined_context += scored_point.payload['page_content'] + " "
+                        combined_context += scored_point.payload['content'] + " "
             if not combined_context:
                 return {"error": "No context found for the given query and PDF."}
                                 
@@ -366,16 +350,20 @@ class PdfController:
     #     except Exception as e:
     #         return await self.handle_exception(e)
             
-    async def all_endpoints(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
+    async def all_endpoints(
+        self,
+        brain_id: str,        
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:        
         """Handles requests for the Multiquery RAG model."""
         try:
             
             # Call each endpoint method and collect the responses
-            hybrid_response = await self.hybrid_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            hybrid_response = await self.hybrid_rag_endpoint(brain_id= brain_id, payload=payload)
             logger.info("Hybrid RAG Implemented")
-            hyde_response = await self.hyde_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            hyde_response = await self.hyde_rag_endpoint(brain_id= brain_id, payload=payload)
             logger.info("HyDE RAG Implemented")
-            dense_response = await self.dense_rag_endpoint(query=query, selected_pdf=files[0].filename)
+            dense_response = await self.dense_rag_endpoint(brain_id= brain_id, payload=payload)
             logger.info("Dense RAG Implemented")
             # multiquery_response = await self.multiquery_rag_endpoint(query=query, selected_pdf=files[0].filename)
             # logger.info("ALL RAGS Implemented")
