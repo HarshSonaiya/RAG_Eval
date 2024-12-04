@@ -5,6 +5,7 @@ from tqdm import tqdm
 from typing import List 
 from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager  
+from utils.const import prompt_template
 import uuid
 
 import re
@@ -17,14 +18,7 @@ class HybridRagService:
     def __init__(self, client: QdrantClient):
         self.client = client
         self.llm_manager = LLMManager()  
-        self.prompt_template = """You are an AI assistant for answering questions about the various documents from the user.
-        You are given the following extracted parts of a long document and a question. Provide a conversational answer.
-        If you don't know the answer, just say "Hmm, I'm not sure." Don't try to make up an answer.
-        Question: {question}
-        =========
-        {context}
-        =========
-        Answer in Markdown: """
+        self.prompt_template = prompt_template
     
     async def index_hybrid_collection(self, chunks: List[Document], brain_id: str):
         """
@@ -85,7 +79,7 @@ class HybridRagService:
         embeddings = list(settings.SPARSE_EMBEDDING_MODEL.embed([text]))[0]
         return models.SparseVector(indices=embeddings.indices.tolist(), values=embeddings.values.tolist())
 
-    def hybrid_search(self, query: str, selected_pdf_id: str, brain_id: str, limit=5):
+    def hybrid_search(self, query: str, selected_pdf_id: str, brain_id: str, limit=20):
         """
         Perform a hybrid search based on the provided query.
         """
@@ -105,7 +99,9 @@ class HybridRagService:
                 models.Prefetch(query=sparse_query, using="sparse", limit=limit),
                 models.Prefetch(query=dense_query, using="dense", limit=limit)
             ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query=models.FusionQuery(
+                fusion=models.Fusion.RRF
+            ),
             query_filter=models.Filter(
                 must=[
                     models.FieldCondition(
@@ -113,13 +109,18 @@ class HybridRagService:
                         match=models.MatchValue(value=selected_pdf_id)
                     )
                 ]
-            )
+            ),
+            limit=limit
         )
 
         documents = [point for point in results.points]
-        logger.info("Results generated", len(documents))
-        return documents
 
+        # ReRank the documents 
+        reranked_docs = self.llm_manager.rerank_docs(documents, query) 
+        
+        logger.info("Results generated", len(reranked_docs))
+        return reranked_docs
+    
     def generate_response(self, question: str, context: str):
         """
         Generate a response using the LLMManager and prompt template.

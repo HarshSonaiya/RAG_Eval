@@ -23,7 +23,7 @@ class RAGApp:
         """Sets up the user interface for the Streamlit app."""
 
         st.title("RAG Pipeline PDF Processing and Comparison")
-
+        
         # Section to create a new brain
         st.subheader("Create a New Brain")
         brain_name = st.text_input("Enter a name for the new brain:")
@@ -224,7 +224,7 @@ class RAGApp:
                     "llm_eval": [metric.strip() for metric in llm_eval[0].split(",")] if llm_eval else [],
                     "retriever_eval": [metric.strip() for metric in retriever_eval[0].split(",")] if retriever_eval else [],
                     "response": result.get(f"{model}_rag_response", "No response available."),
-                    "retriever_response": result.get(f"{model}_retreiver_response", "No response available.")
+                    "retriever_response": result.get(f"{model}_retriever_response", "No response available.")
                 }
 
             # Display LLM evaluations in a tabular format
@@ -288,17 +288,41 @@ class RAGApp:
             # Display all RAG responses one after the other
             st.subheader("RAG Responses")
             for model in models:
-                st.write(f"**Response from {model.capitalize()} RAG:**")
+                st.markdown(f"""
+                            <span style="font-size: 20px;">
+                            **Response from {model.capitalize()} RAG: **
+                            </span>
+                        """,
+                        unsafe_allow_html=True
+                    )                
                 st.write(evaluations[model]["response"])
+                st.markdown(f"""
+                            <span style="font-size: 20px;">
+                            **Response from {model.capitalize()} RAG Retriever:**
+                            </span>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                st.write(evaluations[model]["retriever_response"])
 
         else:
             # Handle single model responses for other cases
             response = results.get(f"{selected_rag_model}_response", "No response available.")
+            retrieved_context = results.get(f"{selected_rag_model}_retriever_response", "No response available.")
             llm_eval = results.get(f"{selected_rag_model}_llm_eval", [])
             retriever_eval = results.get(f"{selected_rag_model}_retriever_eval", [])
 
-            st.subheader(f"Response from {selected_rag_model.capitalize()} RAG")
+            st.subheader(f"Response from {selected_rag_model.capitalize()} RAG: ")
             st.write(response)
+
+            st.markdown(f"""
+                            <span style="font-size: 20px;">
+                            **Response from {selected_rag_model.capitalize()} RAG Retriever: **
+                            </span>
+                        """,
+                        unsafe_allow_html=True
+                    )           
+            st.write(retrieved_context)
 
             # Prepare evaluations
             llm_eval_data = [metric.strip() for metric in llm_eval[0].split(",")] if llm_eval else []

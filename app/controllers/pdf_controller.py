@@ -7,6 +7,8 @@ from langchain_core.stores import InMemoryByteStore
 import logging
 import uuid
 
+from utils.llm_manager import LLMManager
+
 from services.pdf_service import PdfService
 from services.hybrid_rag_service import HybridRagService
 from services.hyde_service import HyDEService
@@ -25,6 +27,7 @@ class PdfController:
         self.client = client
         self.pdf_service = PdfService(logger)
         self.collection = Collection(client)
+        self.llm_manager = LLMManager()
         self.hybrid_rag_service = HybridRagService(client)
         self.hyde_service = HyDEService(client)
         self.dense_rag_service = DenseRagService(client)
@@ -160,6 +163,7 @@ class PdfController:
                 context = self.hybrid_rag_service.hybrid_search(query, pdf_id, brain_id)
                 if context:
                     for scored_point in context:
+                        logger.info("Retrieved Context:", scored_point.payload['content'])
                         combined_context += scored_point.payload['content'] + " "
             if not combined_context:
                 return {"error": "No context found for the given query and PDF."}
@@ -205,7 +209,10 @@ class PdfController:
             for pdf_id in selected_pdf_ids:
                 context = self.dense_rag_service.dense_search(dense_query, pdf_id, brain_id)
                 if context:
-                    for scored_point in context:
+                    # ReRank the documents 
+                    reranked_docs = self.llm_manager.rerank_docs(context, query)
+                    for scored_point in reranked_docs:
+                        logger.info("Retrieved Context:", scored_point.payload['content'])
                         combined_context += scored_point.payload['content'] + " "
             if not combined_context:
                 return {"error": "No context found for the given query and PDF."}
@@ -246,7 +253,10 @@ class PdfController:
             for pdf_id in selected_pdf_ids:
                 context = self.dense_rag_service.dense_search(dense_query, pdf_id, brain_id)
                 if context:
-                    for scored_point in context:
+                    # ReRank the documents 
+                    reranked_docs = self.llm_manager.rerank_docs(context, query)
+                    for scored_point in reranked_docs:
+                        logger.info("Retrieved Context:", scored_point.payload['content'])
                         combined_context += scored_point.payload['content'] + " "
             if not combined_context:
                 return {"error": "No context found for the given query and PDF."}

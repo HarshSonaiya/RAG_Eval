@@ -6,7 +6,6 @@ services:
     volumes:
       - ./app:/app
       - pdf_data:/data/raw  
-      - ./data:/data
     env_file:
       - .env
     depends_on:
