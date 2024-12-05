@@ -1,10 +1,10 @@
 from fastapi import FastAPI
-from controllers import pdf_controller
+from routes.routes import router
 
 app = FastAPI()
 
 # Include the PDF processing routes from the controller
-app.include_router(pdf_controller.router)
+app.include_router(router)
 
 @app.get("/")
 def read_root():

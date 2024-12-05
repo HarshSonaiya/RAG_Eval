@@ -40,6 +40,4 @@ class AppSettings:
         self.SPARSE_EMBEDDING_MODEL = SparseTextEmbedding(model_name=self.SPARSE_EMBEDDING_MODEL_NAME)
         self.CROSS_ENCODER_MODEL = CrossEncoder(model_name=self.CROSS_ENCODER_MODEL_NAME)
 
-
-
 settings = AppSettings()

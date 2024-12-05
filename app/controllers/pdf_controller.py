@@ -1,4 +1,5 @@
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException
+from fastapi import  File, UploadFile, Form, HTTPException
+from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 from qdrant_client import QdrantClient 
 from langchain.schema import Document
@@ -6,16 +7,10 @@ from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain_core.stores import InMemoryByteStore
 import logging
 import uuid
+import os 
 
-from utils.llm_manager import LLMManager
-
-from services.pdf_service import PdfService
-from services.hybrid_rag_service import HybridRagService
-from services.hyde_service import HyDEService
-from services.dense_rag_service import DenseRagService
-# from services.multi_query_service import MultiQueryService
-from services.evaluation_service import evaluate_response
-from utils.collection import Collection
+from services import PdfService, HybridRagService, HyDEService, DenseRagService, evaluate_response
+from utils import LLMManager, Collection
 
 import pandas as pd
 from io import BytesIO
@@ -113,10 +108,6 @@ class PdfController:
         except Exception as e:
             logger.exception("Error processing the PDF %s: %s")
             raise HTTPException(status_code=500, detail="Failed to process files.")
-
-    async def handle_exception(self, e: Exception) -> Dict[str, Any]:
-        """Handle exceptions and return an appropriate error response."""
-        raise HTTPException(status_code=500, detail=str(e))
     
     async def send_for_evaluation(
         self, 
@@ -397,26 +388,30 @@ class PdfController:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Missing required sheets: {str(e)}")
 
-        # Results lists for updating the sheets
-        llm_results = []
-        retriever_results = []
+        brain_id = "7760b47d-bd53-48af-be07-8b8054d8ff06"
+        selected_pdfs =[
+            {
+                "file_name":"7181-attention-is-all-you-need.pdf", 
+                "file_id":"8c26fd2a-7724-40d2-97c9-678e67c1c2f5"
+            },
+            {
+                "file_name":"IP Exam Preparation Framework.pdf",
+                "file_id":"7795a29d-a480-422e-b7ed-797c4830a67a"
+            },
+            {
+                "file_name":"cs.pdf",
+                "file_id":"ce34380c-ba29-474e-875c-d021e8f09c7e"
+            }
+        ]
 
-        # Evaluate LLM Responses
-        for _, row in llm_sheet.iterrows():
+        # Evaluate LLM and Retriever Responses
+        i=1
+        for index, row in llm_sheet.iterrows() and i<5:
+            i+=1
+            if i == 5: 
+                break
             question = row["Question"]
             ground_truth = row["Ground Truth"]
-
-            brain_id = "7760b47d-bd53-48af-be07-8b8054d8ff06"
-            selected_pdfs =[
-                {
-                    "file_name":"7181-attention-is-all-you-need.pdf", 
-                    "file_id":"d5c33a08-6396-42db-aeb2-ac6ed42088a6"
-                },
-                {
-                    "file_name":"IP Exam Preparation Framework.pdf",
-                    "file_id":"8c9e2fdd-5c1f-4bd1-a475-5351335d78dd"
-                }
-            ]
 
             payload = {
                 "query": question,
@@ -427,61 +422,39 @@ class PdfController:
             retrieved_context = results.get("hybrid", {}).get("hybrid_retriever_response", "No response available.")
                 
             if pd.isna(question) or pd.isna(ground_truth) or pd.isna(llm_response):
-                llm_results.append({"Evaluation Result": "Skipped - Missing Data"})
                 continue  # Skip rows with missing data
 
-            # Call send_for_evaluation
+            # Call send_for_evaluation to evaluate both responses
             evaluation_result = await self.send_for_evaluation(retrieved_context, question, llm_response, ground_truth)
-            llm_results.append({"Evaluation Result": evaluation_result})
+            
+            # Extract LLM and Retriever evaluations
+            llm_eval = evaluation_result[0]  # LLM evaluation results
+            retriever_eval = evaluation_result[1]  # Retriever evaluation results
 
-        # Add the results as a new column to the LLM sheet
-        llm_sheet["Evaluation Result"] = [result["Evaluation Result"] for result in llm_results]
+            # Update LLM sheet with response and evaluation metrics
+            llm_sheet.at[index, "LLM Response"] = llm_response
+            llm_sheet.at[index, "Helpfulness"] = llm_eval["Helpfulness"]
+            llm_sheet.at[index, "Correctness"] = llm_eval["Correctness"]
+            llm_sheet.at[index, "Coherence"] = llm_eval["Coherence"]
+            llm_sheet.at[index, "Complexity"] = llm_eval["Complexity"]
+            llm_sheet.at[index, "Verbosity"] = llm_eval["Verbosity"]
 
-        # Evaluate Retriever Responses
-        for _, row in retriever_sheet.iterrows():
-            question = row["Question"]
-            ground_truth = row["Ground Truth"]
-            retriever_response = row["Retriever Response"] if "Retriever Response" in row else None
-            retrieved_context = "Dummy Context for Retriever"  # Replace with actual context logic
-
-            if pd.isna(question) or pd.isna(ground_truth) or pd.isna(retriever_response):
-                retriever_results.append({"Evaluation Result": "Skipped - Missing Data"})
-                continue  # Skip rows with missing data
-
-            # Call send_for_evaluation
-            evaluation_result = await send_for_evaluation(retrieved_context, question, retriever_response, ground_truth)
-            retriever_results.append({"Evaluation Result": evaluation_result})
-
-        # Add the results as a new column to the Retriever sheet
-        retriever_sheet["Evaluation Result"] = [result["Evaluation Result"] for result in retriever_results]
+            # Update Retriever sheet with response and evaluation metrics
+            retriever_sheet.at[index, "Retriever Response"] = retrieved_context
+            retriever_sheet.at[index, "Helpfulness"] = retriever_eval["Helpfulness"]
+            retriever_sheet.at[index, "Correctness"] = retriever_eval["Correctness"]
+            retriever_sheet.at[index, "Coherence"] = retriever_eval["Coherence"]
+            retriever_sheet.at[index, "Complexity"] = retriever_eval["Complexity"]
+            retriever_sheet.at[index, "Verbosity"] = retriever_eval["Verbosity"]
 
         # Save the updated data to a new Excel file
         output_file = "/mnt/data/evaluated_test_set.xlsx"
         with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
             llm_sheet.to_excel(writer, index=False, sheet_name="LLM Eval")
             retriever_sheet.to_excel(writer, index=False, sheet_name="Retriever Eval")
-
-        return {"message": "Evaluation completed", "file_path": output_file}
-
-
-
-# Create an APIRouter to register the routes
-router = APIRouter()
-
-# Create Qdrant client instance
-client = QdrantClient(url="http://qdrant:6333", port=6333)
-
-# Create an instance of PdfController with injected dependencies
-pdf_controller = PdfController(client)
-
-# Register the routes with the router
-router.post("/api/create-brain")(pdf_controller.create_new_brain)
-router.get("/api/list-brains")(pdf_controller.list_brains)
-router.post("/api/{brain_id}/upload")(pdf_controller.process_files)
-router.get("/api/{brain_id}/list-files")(pdf_controller.list_files)
-router.post("/api/{brain_id}/hybrid_rag")(pdf_controller.hybrid_rag_endpoint)
-router.post("/api/{brain_id}/hyde_rag")(pdf_controller.hyde_rag_endpoint)
-router.post("/api/{brain_id}/dense_rag")(pdf_controller.dense_rag_endpoint)
-# router.post("/api/{brain_id}/multiquery_rag")(pdf_controller.multiquery_rag_endpoint)
-router.post("/api/{brain_id}/all")(pdf_controller.all_endpoints)
-router.post("/api/evaluate")(pdf_controller.evaluate_responses)
+            
+        if os.path.exists(output_file):
+            return FileResponse(output_file, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="evaluated_test_set.xlsx")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to process the file.")
+        

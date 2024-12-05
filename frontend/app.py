@@ -3,6 +3,9 @@ import streamlit as st
 import logging 
 import json
 
+
+logger = logging.getLogger("streamlit")
+
 class RAGApp:
     """
     A class to manage the RAG Pipeline PDF Processing and Comparison application.
@@ -12,8 +15,6 @@ class RAGApp:
         """
         Initializes the RAGApp, sets up the logger, and configures the Streamlit app.
         """
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger("streamlit")
         self.file_list = []
         self.file_uuid_mapping = {}
         self.brain_id = None
@@ -84,6 +85,8 @@ class RAGApp:
             try:
                 response = requests.post("http://backend:9000/api/create-brain", data={"brain_name": brain_name})
                 if response.status_code == 200:
+                    response_data = response.json() 
+                    st.write(response_data)
                     st.success(f"New brain '{brain_name}' created successfully! Select this brain to upload PDFs.")
                 else:
                     st.error(f"Error creating brain: {response.text}")

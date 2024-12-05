@@ -111,10 +111,10 @@ class Collection:
         try:
             result = self.client.scroll(
                 collection_name = brain_id,
-                with_payload=True
+                with_payload=True,
+                limit=4000
             ) 
             points, _ = result 
-
             for point in points:
                 if "metadata" in point.payload and "file_name" in point.payload["metadata"] and "pdf_id" in point.payload["metadata"]:
                     
