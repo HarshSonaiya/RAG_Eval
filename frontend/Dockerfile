@@ -4,7 +4,7 @@ FROM python:3.9-slim
 # Set the working directory for the frontend
 WORKDIR /frontend
 
-RUN pip install streamlit
+RUN pip install streamlit --no-cache-dir
 
 # Copy the Streamlit code to the working directory
 COPY ./ ./

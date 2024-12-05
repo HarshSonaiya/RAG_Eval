@@ -50,6 +50,33 @@ class RAGApp:
                 st.warning("Please select a valid brain to proceed.")
         else:
             st.warning("No brains available. Please create a brain first.")
+            
+        # New Section: Evaluation
+        st.header("Evaluate Responses")
+        evaluation_file = st.file_uploader("Upload Test Dataset (XLSX format)", type=["xlsx"])
+        
+        if st.button("Run Evaluation"):
+            if evaluation_file:
+                self.run_evaluation(evaluation_file)
+            else:
+                st.warning("Please upload a test dataset.")
+        
+    def run_evaluation(self, evaluation_file):
+        """Runs the evaluation using the uploaded CSV file."""
+        with st.spinner("Running evaluation..."):
+            try:
+                files = {"test_csv": (evaluation_file.name, evaluation_file, "text/csv")}
+                response = requests.post("http://backend:9000/api/evaluate", files=files)
+                
+                if response.status_code == 200:
+                    results = response.json()
+                    self.display_evaluation_results(results)
+                else:
+                    st.error(f"Evaluation failed: {response.text}")
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+                self.logger.exception(f"Evaluation error: {e}")
+
         
     def create_new_brain(self, brain_name):
         """Creates a new brain by sending a request to the backend."""

@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y build-essential
 
 # Copy the requirements and install dependencies
 COPY ../requirements.txt .
-RUN pip install -r requirements.txt 
+RUN pip install -r requirements.txt --no-cache-dir
 
 # Copy the app code to the working directory
 COPY app/ ./

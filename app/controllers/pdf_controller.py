@@ -14,8 +14,12 @@ from services.hybrid_rag_service import HybridRagService
 from services.hyde_service import HyDEService
 from services.dense_rag_service import DenseRagService
 # from services.multi_query_service import MultiQueryService
-from services.evaluation_service import  evaluate_hybrid_response, evaluate_response
+from services.evaluation_service import evaluate_response
 from utils.collection import Collection
+
+import pandas as pd
+from io import BytesIO
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -114,28 +118,15 @@ class PdfController:
         """Handle exceptions and return an appropriate error response."""
         raise HTTPException(status_code=500, detail=str(e))
     
-    async def send_for_hybrid_evaluation(
-        self, 
-        retrieved_context: str, 
-        query: str, response: str
-    ) -> Dict[str, Any]:
-        """Send the response for evaluation and return the evaluation result."""
-        evaluation_result = await evaluate_hybrid_response(retrieved_context, query, response)
-        evaluation_contents = [
-            eval_msg.content for eval_msg in evaluation_result[0]
-        ], [
-            eval_msg.content for eval_msg in evaluation_result[1]
-        ]
-        return evaluation_contents
-    
     async def send_for_evaluation(
         self, 
         retrieved_context: str, 
         query: str, 
-        response: str
+        response: str,
+        ground_truth: str
     ) -> Dict[str, Any]:
         """Send the response for evaluation and return the evaluation result."""
-        evaluation_result = await evaluate_response(retrieved_context, query, response)
+        evaluation_result = await evaluate_response(retrieved_context, query, response, ground_truth)
         evaluation_contents = [
             eval_msg.content for eval_msg in evaluation_result[0]
         ], [
@@ -174,7 +165,7 @@ class PdfController:
             
             # Send the response for evaluation
             logger.info("Begin evaluation in hybrid rag")
-            evaluation_results = await self.send_for_hybrid_evaluation(combined_context, query, response)
+            evaluation_results = await self.send_for_evaluation(combined_context, query, response)
 
             return {
             "hybrid_rag_response": response, 
@@ -388,6 +379,91 @@ class PdfController:
         except Exception as e:
             return await self.handle_exception(e)
 
+    async def evaluate_responses(self, file: UploadFile):
+        if not file.filename.endswith(".xlsx"):
+            raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
+
+        # Read the uploaded Excel file
+        content = await file.read()
+        try:
+            excel_data = pd.ExcelFile(BytesIO(content))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid Excel file: {str(e)}")
+
+        # Parse the relevant sheets
+        try:
+            llm_sheet = excel_data.parse("LLM Eval")
+            retriever_sheet = excel_data.parse("Retriever Eval")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Missing required sheets: {str(e)}")
+
+        # Results lists for updating the sheets
+        llm_results = []
+        retriever_results = []
+
+        # Evaluate LLM Responses
+        for _, row in llm_sheet.iterrows():
+            question = row["Question"]
+            ground_truth = row["Ground Truth"]
+
+            brain_id = "7760b47d-bd53-48af-be07-8b8054d8ff06"
+            selected_pdfs =[
+                {
+                    "file_name":"7181-attention-is-all-you-need.pdf", 
+                    "file_id":"d5c33a08-6396-42db-aeb2-ac6ed42088a6"
+                },
+                {
+                    "file_name":"IP Exam Preparation Framework.pdf",
+                    "file_id":"8c9e2fdd-5c1f-4bd1-a475-5351335d78dd"
+                }
+            ]
+
+            payload = {
+                "query": question,
+                "selected_pdfs": selected_pdfs,  
+            }
+            results = await self.hybrid_rag_endpoint(brain_id=brain_id,payload=payload)
+            llm_response = results.get("hybrid", {}).get("hybrid_rag_response", "No response available."),
+            retrieved_context = results.get("hybrid", {}).get("hybrid_retriever_response", "No response available.")
+                
+            if pd.isna(question) or pd.isna(ground_truth) or pd.isna(llm_response):
+                llm_results.append({"Evaluation Result": "Skipped - Missing Data"})
+                continue  # Skip rows with missing data
+
+            # Call send_for_evaluation
+            evaluation_result = await self.send_for_evaluation(retrieved_context, question, llm_response, ground_truth)
+            llm_results.append({"Evaluation Result": evaluation_result})
+
+        # Add the results as a new column to the LLM sheet
+        llm_sheet["Evaluation Result"] = [result["Evaluation Result"] for result in llm_results]
+
+        # Evaluate Retriever Responses
+        for _, row in retriever_sheet.iterrows():
+            question = row["Question"]
+            ground_truth = row["Ground Truth"]
+            retriever_response = row["Retriever Response"] if "Retriever Response" in row else None
+            retrieved_context = "Dummy Context for Retriever"  # Replace with actual context logic
+
+            if pd.isna(question) or pd.isna(ground_truth) or pd.isna(retriever_response):
+                retriever_results.append({"Evaluation Result": "Skipped - Missing Data"})
+                continue  # Skip rows with missing data
+
+            # Call send_for_evaluation
+            evaluation_result = await send_for_evaluation(retrieved_context, question, retriever_response, ground_truth)
+            retriever_results.append({"Evaluation Result": evaluation_result})
+
+        # Add the results as a new column to the Retriever sheet
+        retriever_sheet["Evaluation Result"] = [result["Evaluation Result"] for result in retriever_results]
+
+        # Save the updated data to a new Excel file
+        output_file = "/mnt/data/evaluated_test_set.xlsx"
+        with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
+            llm_sheet.to_excel(writer, index=False, sheet_name="LLM Eval")
+            retriever_sheet.to_excel(writer, index=False, sheet_name="Retriever Eval")
+
+        return {"message": "Evaluation completed", "file_path": output_file}
+
+
 
 # Create an APIRouter to register the routes
 router = APIRouter()
@@ -408,3 +484,4 @@ router.post("/api/{brain_id}/hyde_rag")(pdf_controller.hyde_rag_endpoint)
 router.post("/api/{brain_id}/dense_rag")(pdf_controller.dense_rag_endpoint)
 # router.post("/api/{brain_id}/multiquery_rag")(pdf_controller.multiquery_rag_endpoint)
 router.post("/api/{brain_id}/all")(pdf_controller.all_endpoints)
+router.post("/api/evaluate")(pdf_controller.evaluate_responses)
