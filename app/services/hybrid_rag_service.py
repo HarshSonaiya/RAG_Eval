@@ -3,16 +3,15 @@ from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from tqdm import tqdm
 from typing import List 
-from config.logging_config import LoggerFactory  
 from utils.llm_manager import LLMManager  
 from utils.const import prompt_template
 import uuid
 
 import re
+import logging 
 
 # Initialize logger using LoggerFactory
-logger_factory = LoggerFactory()
-logger = logger_factory.get_logger("pipeline")
+logger = logging.getLogger("pipeline")
 
 class HybridRagService:
     def __init__(self, client: QdrantClient):
@@ -118,7 +117,7 @@ class HybridRagService:
         # ReRank the documents 
         reranked_docs = self.llm_manager.rerank_docs(documents, query) 
         
-        logger.info("Results generated", len(reranked_docs))
+        logger.info("Results generated %s", len(reranked_docs))
         return reranked_docs
     
     def generate_response(self, question: str, context: str):

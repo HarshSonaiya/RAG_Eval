@@ -1,10 +1,8 @@
 from langchain_groq import ChatGroq
 from config.settings import settings
-from config.logging_config import LoggerFactory  
-
+import logging
 # Initialize logger using LoggerFactory
-logger_factory = LoggerFactory()
-logger = logger_factory.get_logger("pipeline")
+logger = logging.getLogger("pipeline")
 
 class LLMManager:
     def __init__(self):
@@ -26,12 +24,14 @@ class LLMManager:
 
         # Create pairs of query and document
         pairs = [(query, doc_text) for doc_text in document_texts]
-
+    
         # Use the Cross-Encoder to predict relevance scores for the pairs
         scores = settings.CROSS_ENCODER_MODEL.predict(pairs)
 
+        logger.info(f"Retrieved documents and their scores:{len(pairs)}- {scores} - {type(scores)}")
+        
         # Rank the documents based on the cross-encoder scores
-        ranked_documents = [doc for _, doc in sorted(zip(scores, documents), reverse=True)]
+        ranked_documents = [doc for _, doc in sorted(zip(scores, documents), reverse=True, key=lambda x: x[0])]
 
         # Select top 4 documents based on the reranked scores
         top_4_documents = ranked_documents[:4]

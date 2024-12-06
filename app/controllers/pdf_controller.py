@@ -3,8 +3,6 @@ from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 from qdrant_client import QdrantClient 
 from langchain.schema import Document
-from langchain.retrievers.multi_vector import MultiVectorRetriever
-from langchain_core.stores import InMemoryByteStore
 import logging
 import uuid
 import os 
@@ -15,9 +13,18 @@ from utils import LLMManager, Collection
 import pandas as pd
 from io import BytesIO
 
+import time
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level (e.g., DEBUG, INFO, WARNING, ERROR)
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Log format
+    handlers=[
+        logging.FileHandler("logs/pipeline1.log"),
+        logging.StreamHandler()  # Log to the terminal (stdout)
+    ]
+)
+logger = logging.getLogger("pipeline")
 
 class PdfController:
     """Handles PDF processing and retrieval endpoints."""
@@ -145,7 +152,7 @@ class PdfController:
                 context = self.hybrid_rag_service.hybrid_search(query, pdf_id, brain_id)
                 if context:
                     for scored_point in context:
-                        logger.info("Retrieved Context:", scored_point.payload['content'])
+                        logger.info("Retrieved Context: %s", scored_point.payload['content'])
                         combined_context += scored_point.payload['content'] + " "
             if not combined_context:
                 return {"error": "No context found for the given query and PDF."}
@@ -153,20 +160,16 @@ class PdfController:
             logger.info("Begin Response generation in hybrid rag")
             response = self.hybrid_rag_service.generate_response(query, combined_context)
             response = response.content
-            
-            # Send the response for evaluation
-            logger.info("Begin evaluation in hybrid rag")
-            evaluation_results = await self.send_for_evaluation(combined_context, query, response)
 
+            time.sleep(4)
+            
             return {
             "hybrid_rag_response": response, 
             "hybrid_retriever_response":combined_context,
-            "hybrid_rag_llm_eval": evaluation_results[0],
-            "hybrid_rag_retriever_eval": evaluation_results[1]
             }            
         except Exception as e:
             logger.exception("Error in hybrid RAG endpoint: %s", str(e))
-            return await self.handle_exception(e)
+            # return await self.handle_exception(e)
 
     async def hyde_rag_endpoint(
         self,
@@ -294,53 +297,6 @@ class PdfController:
     #         }
     #     except Exception as e:
     #         return await self.handle_exception(e)
-        
-    # # async def multivector_rag_endpoint(self, files: List[UploadFile] = File(...), query: str = Form(...)) -> Dict[str, Any]:
-    #     """Handles requests for the Multiquery RAG model."""
-    #     try:
-    #         multiquery = MultiQueryService(client)
-    #         logger.info("DOCS RECEIVED")
-    #         docs = await self.process_files(files, "multivector")
-    #         logger.info(f"{len(docs)}")
-
-    #         summary_query = "Generate a summary for the provided text" 
-    #         summaries = []
-    #         for doc in docs:
-    #             summaries.append(multiquery.generate_response(summary_query, doc.page_content))
-
-    #         doc_ids = [str(uuid4()) for _ in docs]
-
-    #         store = InMemoryByteStore()
-    #         id_key = "doc_id"
-
-    #         # The retriever (empty to start)
-    #         retriever = MultiVectorRetriever(
-    #             vectorstore=multiquery.vector_store,
-    #             byte_store=store,
-    #             id_key=id_key,
-    #         )
-
-    #         doc_ids = [str(uuid4()) for _ in docs]
-    #         summary_docs = [
-    #             Document(page_content=s, metadata={"doc_id": doc_ids[i]})
-    #             for i, s in enumerate(summaries)
-    #         ]
-
-    #         retriever.vectorstore.add_documents(summary_docs)
-
-    #         sub_docs = retriever.vectorstore.similarity_search("LSTMS")
-    #         print(f"Multivector Retriever Response: {sub_docs}")
-            
-    #         retrieved_docs = retriever.invoke("justice breyer")
-    #         print(f"Multivector Response: {retrieved_docs}")
-
-    #         # return {
-    #         # "multiquery_rag_response": response, 
-    #         # "multiquery_rag_llm_eval": evaluation_results[0],
-    #         # "multiquery_rag_retriever_eval": evaluation_results[1]
-    #         # }
-    #     except Exception as e:
-    #         return await self.handle_exception(e)
             
     async def all_endpoints(
         self,
@@ -388,7 +344,7 @@ class PdfController:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Missing required sheets: {str(e)}")
 
-        brain_id = "7760b47d-bd53-48af-be07-8b8054d8ff06"
+        brain_id = "ea8151ae-bd89-4eba-a9e8-d133e42a2e05"
         selected_pdfs =[
             {
                 "file_name":"7181-attention-is-all-you-need.pdf", 
@@ -405,11 +361,8 @@ class PdfController:
         ]
 
         # Evaluate LLM and Retriever Responses
-        i=1
-        for index, row in llm_sheet.iterrows() and i<5:
-            i+=1
-            if i == 5: 
-                break
+        for index, row in llm_sheet.iterrows() :
+            
             question = row["Question"]
             ground_truth = row["Ground Truth"]
 
@@ -417,9 +370,14 @@ class PdfController:
                 "query": question,
                 "selected_pdfs": selected_pdfs,  
             }
+
+            logger.info("Question: %s", question)
+            logger.info("Ground truth: %s", ground_truth)
+
             results = await self.hybrid_rag_endpoint(brain_id=brain_id,payload=payload)
-            llm_response = results.get("hybrid", {}).get("hybrid_rag_response", "No response available."),
-            retrieved_context = results.get("hybrid", {}).get("hybrid_retriever_response", "No response available.")
+            llm_response = results.get("hybrid_rag_response", "No response available.")
+            logger.info("LLM Response: %s", llm_response)
+            retrieved_context = results.get("hybrid_retriever_response", "No response available.")
                 
             if pd.isna(question) or pd.isna(ground_truth) or pd.isna(llm_response):
                 continue  # Skip rows with missing data
@@ -428,32 +386,49 @@ class PdfController:
             evaluation_result = await self.send_for_evaluation(retrieved_context, question, llm_response, ground_truth)
             
             # Extract LLM and Retriever evaluations
-            llm_eval = evaluation_result[0]  # LLM evaluation results
-            retriever_eval = evaluation_result[1]  # Retriever evaluation results
+            llm_eval = evaluation_result[0]  # LLM evaluation results, list of strings 
+            eval_dict = {}
+            for item in llm_eval[0].split(','):
+                key, value = item.split(':')
+                eval_dict[key] = float(value)
 
             # Update LLM sheet with response and evaluation metrics
             llm_sheet.at[index, "LLM Response"] = llm_response
-            llm_sheet.at[index, "Helpfulness"] = llm_eval["Helpfulness"]
-            llm_sheet.at[index, "Correctness"] = llm_eval["Correctness"]
-            llm_sheet.at[index, "Coherence"] = llm_eval["Coherence"]
-            llm_sheet.at[index, "Complexity"] = llm_eval["Complexity"]
-            llm_sheet.at[index, "Verbosity"] = llm_eval["Verbosity"]
+            llm_sheet.at[index, "Helpfulness"] = float(eval_dict.get("helpfulness", 0.0))
+            llm_sheet.at[index, "Correctness"] = float(eval_dict.get("correctness", 0.0))
+            llm_sheet.at[index, "Coherence"] = float(eval_dict.get("coherence", 0.0))
+            llm_sheet.at[index, "Complexity"] = float(eval_dict.get("complexity", 0.0))
+            llm_sheet.at[index, "Verbosity"] = float(eval_dict.get("verbosity", 0.0))
+
+            retriever_eval = evaluation_result[1]  # Retriever evaluation results, 
+
+            for item in retriever_eval[0].split(','):
+                key, value = item.split(':')
+                eval_dict[key] = float(value)
 
             # Update Retriever sheet with response and evaluation metrics
             retriever_sheet.at[index, "Retriever Response"] = retrieved_context
-            retriever_sheet.at[index, "Helpfulness"] = retriever_eval["Helpfulness"]
-            retriever_sheet.at[index, "Correctness"] = retriever_eval["Correctness"]
-            retriever_sheet.at[index, "Coherence"] = retriever_eval["Coherence"]
-            retriever_sheet.at[index, "Complexity"] = retriever_eval["Complexity"]
-            retriever_sheet.at[index, "Verbosity"] = retriever_eval["Verbosity"]
+            retriever_sheet.at[index, "Helpfulness"] = float(eval_dict.get("helpfulness", 0.0))
+            retriever_sheet.at[index, "Correctness"] = float(eval_dict.get("correctness", 0.0))
+            retriever_sheet.at[index, "Coherence"] = float(eval_dict.get("coherence", 0.0))
+            retriever_sheet.at[index, "Complexity"] = float(eval_dict.get("complexity", 0.0))
+            retriever_sheet.at[index, "Verbosity"] = float(eval_dict.get("verbosity", 0.0))
 
         # Save the updated data to a new Excel file
-        output_file = "/mnt/data/evaluated_test_set.xlsx"
-        with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
+        current_directory = os.getcwd()
+
+        # Define the output file path in the current working directory
+        output_file = os.path.join(current_directory, "evaluated_test_set.xlsx")
+        
+        # Ensure the current directory exists (optional check)
+        if not os.path.exists(current_directory):
+            os.makedirs(current_directory)
+            
+        with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
             llm_sheet.to_excel(writer, index=False, sheet_name="LLM Eval")
             retriever_sheet.to_excel(writer, index=False, sheet_name="Retriever Eval")
             
-        if os.path.exists(output_file):
+        if os.path.exists("evaluated_test_set.xlsx"):
             return FileResponse(output_file, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename="evaluated_test_set.xlsx")
         else:
             raise HTTPException(status_code=500, detail="Failed to process the file.")

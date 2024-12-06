@@ -84,6 +84,7 @@ async def evaluate_response(retrieved: str, query: str, llm_response: str, groun
     }]
 
     llm_eval = user.evaluate_llm(validation_set[0])
+    print("LLM_eval", llm_eval)
     retriever_eval = user.evaluate_retriever(validation_set[0])
     logger.info("Evaluation completed. Returning results.")
     print("Retriever_eval", retriever_eval)

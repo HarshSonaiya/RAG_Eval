@@ -3,17 +3,16 @@ from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from utils.collection import Collection
 from langchain_qdrant import QdrantVectorStore
-from config.logging_config import LoggerFactory  
 from typing import List 
 from utils.llm_manager import LLMManager
 from utils.const import prompt_template
 from uuid import uuid4
+import logging
 
 
 
 # Initialize logger using LoggerFactory
-logger_factory = LoggerFactory()
-logger = logger_factory.get_logger("pipeline")
+logger = logging.getLogger("pipeline")
 
 class DenseRagService:
     def __init__(self, client: QdrantClient):

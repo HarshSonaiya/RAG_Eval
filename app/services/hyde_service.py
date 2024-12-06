@@ -2,7 +2,7 @@ from config.settings import settings
 from qdrant_client import QdrantClient
 from langchain.schema import Document
 from langchain_qdrant import QdrantVectorStore
-from config.logging_config import LoggerFactory  
+import logging
 from utils.llm_manager import LLMManager
 from utils.collection import Collection
 from uuid import uuid4
@@ -10,8 +10,7 @@ from typing import List
 
 
 # Initialize logger using LoggerFactory
-logger_factory = LoggerFactory()
-logger = logger_factory.get_logger("pipeline")
+logger = logging.getLogger("pipeline")
 
 class HyDEService:
     
