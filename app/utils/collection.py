@@ -4,6 +4,8 @@ from typing import List, Set
 import uuid 
 import logging
 
+from utils.helper import send_response, handle_exception
+
 # Initialize logger 
 logger = logging.getLogger("pipeline")
 
@@ -16,34 +18,20 @@ class Collection:
         Create a dense and hybrid collection in Qdrant if it does not exist.
         """
         # Get the list of existing collections
-        existing_collections = self.client.get_collections().collections
+        existing_collections = self.client.get_aliases()
 
-        # Check if any collection has the 'brain_name' in its payload
-        for collection in existing_collections:
-            try:
-
-                # Query the collection for points with the payload "brain_name"
-                result = self.client.scroll(
-                    collection_name=collection.name,
-                    limit =10,
-                    scroll_filter=models.Filter(
-                        must=[models.FieldCondition(key="brain_name", match=models.MatchValue(value=brain_name))]
-                    )
-                )
-                 # Scroll result format: points, offset
-                points, _ = result
-                # If result contains any points, that means the brain_name exists in this collection
-                if points:
-                    logger.info(f"Brain '{brain_name}' already exists in collection: {collection.name}")
-                    return collection.name  
-
-            except Exception as e:
-                logger.info(f"Error searching in collection '{collection.name}': {e}")
-                continue
-
+        if brain_name in existing_collections:
+            logger.info(f"Brain with {brain_name} already exists.")
+            return send_response(
+                False, 
+                200,
+                f"Brain: {brain_name} already exists,",
+                None
+            )
+            
         # If the brain does not exist, create a new collection
         try:
-            brain_id = str(uuid.uuid4())  # Generate a new unique brain ID (UUID)
+            brain_id = str(uuid.uuid4())  
 
             # Create a hybrid collection (dense + sparse)
             self.client.create_collection(
@@ -57,24 +45,34 @@ class Collection:
             )
             logger.info(f"Created hybrid collection with ID: {brain_id}")
 
-            # Insert a dummy point with the brain_name
-            self.client.upsert(
-                collection_name=brain_id,
-                points=[models.PointStruct(
-                    id=1, 
-                    payload={"brain_name": brain_name},
-                    vector={
-                                "dense": [0.0] * 768,
-                                "sparse": models.SparseVector(indices=[], values=[])
-                            }
-                )]
+            # Create collection alias for collection identification
+            self.client.update_collection_aliases(
+                change_aliases_operations=[
+                    models.CreateAliasOperation(
+                        create_alias=models.CreateAlias(
+                            collection_name=brain_id, alias_name=brain_name
+                        )
+                    )
+                ]
             )
-                    
-            return brain_id  
+            logger.info(f"Created hybrid collection alias: {brain_name}")
+            
+            return send_response(
+                True,
+                200,
+                f"Brain {brain_name} created in qdrant successfully.",
+                {
+                    "brain_id":brain_id
+                }
+            )  
         
         except Exception as e:
             logger.exception(f"Error while creating collections for brain '{brain_name}': {e}")
-            raise Exception(f"Error creating collections for brain '{brain_name}'")  # Rethrow the exception
+            return handle_exception(
+                500,
+                f"Error while creating collections for brain {brain_name}",
+                e
+            )
 
     async def list_brains(self):
 
