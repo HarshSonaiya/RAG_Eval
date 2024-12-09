@@ -27,7 +27,7 @@ class HyDEService:
         {context}
         =========
         Answer in Markdown: """
-        
+
     async def index_collection(self, chunks: List[Document]):
         """
         Index the given list of Document chunks into the Qdrant dense collection.

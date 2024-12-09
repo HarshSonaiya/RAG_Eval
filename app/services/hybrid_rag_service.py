@@ -20,7 +20,9 @@ class HybridRagService:
         self.llm_manager = llm_manager
         self.prompt_template = prompt_template
 
-    async def index_hybrid_collection(self, chunks: List[Document], brain_id: str):
+    async def index_hybrid_collection(
+        self, chunks: List[Document], brain_id: str, batch_size: int = 64
+    ):
         """
         Index the given list of Document chunks into the Qdrant hybrid collection.
         """
@@ -28,56 +30,50 @@ class HybridRagService:
 
         try:
             invalid_chunks = 0
-            for i, doc in enumerate(tqdm(chunks, total=len(chunks))):
-                # Create embeddings with fallback logic
-                try:
-                    dense_embedding = self.create_dense_vector(doc.page_content)
-                except Exception as e:
-                    logger.exception(
-                        f"Error creating dense vector for document {i}: {e}"
-                    )
-                    dense_embedding = None  # Fallback to None
+            # Create batch of points of specified size for indexing.
+            batched_chunks = [
+                chunks[i : i + batch_size] for i in range(0, len(chunks), batch_size)
+            ]
 
-                try:
-                    sparse_embedding = self.create_sparse_vector(doc.page_content)
-                except Exception as e:
-                    logger.exception(
-                        f"Error creating sparse vector for document {i}: {e}"
-                    )
-                    sparse_embedding = None  # Fallback to None
+            for batch_idx, batch in enumerate(tqdm(batched_chunks, desc="Processing batches")):
+                points = []
+                for i, doc in enumerate(batch):
+                    try:
+                        # Create embeddings with fallback logic
+                        dense_embedding = self.create_dense_vector(doc.page_content)
+                    except Exception as e:
+                        logger.exception(f"Error creating dense vector for document {i}: {e}")
+                        dense_embedding = None  # Fallback to None
 
-                # Only upsert if embeddings were created successfully
-                if dense_embedding is not None and sparse_embedding is not None:
-                    self.client.upsert(
-                        collection_name=brain_id,
-                        points=[
+                    try:
+                        sparse_embedding = self.create_sparse_vector(doc.page_content)
+                    except Exception as e:
+                        logger.exception(f"Error creating sparse vector for document {i}: {e}")
+                        sparse_embedding = None  # Fallback to None
+
+                    # Only include the point if both embeddings were created successfully
+                    if dense_embedding is not None and sparse_embedding is not None:
+                        points.append(
                             models.PointStruct(
                                 id=str(uuid.uuid4()),
-                                vector={
-                                    "dense": dense_embedding,
-                                    "sparse": sparse_embedding,
-                                },
-                                payload={
-                                    "content": doc.page_content,
-                                    "metadata": doc.metadata,
-                                },
+                                vector={"dense": dense_embedding, "sparse": sparse_embedding},
+                                payload={"content": doc.page_content, "metadata": doc.metadata},
                             )
-                        ],
-                    )
-                else:
-                    logger.warning(
-                        f"Skipping indexing for document {i} due to failed embeddings."
-                    )
-                    invalid_chunks += 1
+                        )
+                    else:
+                        logger.warning(f"Skipping indexing for document {i} due to failed embeddings.")
+                        invalid_chunks += 1
 
-            if invalid_chunks > 0:
-                return False
-            else:
-                return True
+                # Upload the batch to Qdrant
+                if points:
+                    self.client.upload_points(collection_name=brain_id, points=points, batch_size=batch_size)
+                    logger.info(f"Indexed {len(chunks)} documents into Qdrant Hybrid Collection.")
+
+            # Return False if any documents were skipped due to failed embeddings
+            return invalid_chunks == 0
         except Exception as e:
-            logger.exception(f"Error processing document {i}: {e}")
-
-        logger.info(f"Indexed {len(chunks)} documents into Qdrant Hybrid Collection.")
+            logger.exception(f"Error occurred during batch indexing: {e}")
+            return False
 
     def create_dense_vector(self, text: str):
         """
@@ -166,7 +162,9 @@ class HybridRagService:
         )
         documents = [point for point in results.points]
 
-        logger.info(f"Sparse Search Completed. Result: {len(documents)} documents retrieved")
+        logger.info(
+            f"Sparse Search Completed. Result: {len(documents)} documents retrieved"
+        )
         return documents
 
     def generate_response(self, question: str, context: str):
