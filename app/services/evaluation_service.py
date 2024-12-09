@@ -71,20 +71,23 @@ async def evaluate_response(
     """Evaluates the response of the language model and the retriever."""
     logger.info("Evaluating the response of the language model and the retriever.")
 
-    user = Evaluation(api_key=settings.NVIDIA_API_KEY)
+    try:
+        user = Evaluation(api_key=settings.NVIDIA_API_KEY)
 
-    validation_set = [
-        {
-            "question": query,
-            "ground_truth": ground_truth,
-            "retrieved_docs": retrieved,
-            "llm_response": llm_response,
-        }
-    ]
+        validation_set = [
+            {
+                "question": query,
+                "ground_truth": ground_truth,
+                "retrieved_docs": retrieved,
+                "llm_response": llm_response,
+            }
+        ]
 
-    llm_eval = user.evaluate_llm(validation_set[0])
-    print("LLM_eval", llm_eval)
-    retriever_eval = user.evaluate_retriever(validation_set[0])
-    logger.info("Evaluation completed. Returning results.")
-    print("Retriever_eval", retriever_eval)
-    return llm_eval, retriever_eval
+        llm_eval = user.evaluate_llm(validation_set[0])
+        print("LLM_eval", llm_eval)
+        retriever_eval = user.evaluate_retriever(validation_set[0])
+        logger.info("Evaluation completed. Returning results.")
+        print("Retriever_eval", retriever_eval)
+        return llm_eval, retriever_eval
+    except Exception as e:
+        raise e

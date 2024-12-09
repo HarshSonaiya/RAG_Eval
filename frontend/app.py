@@ -86,10 +86,10 @@ class RAGApp:
                     "http://backend:9000/api/evaluate", files=files
                 )
                 response = response.json()
-                if response["status_code"] == 200:
+                if response["success"]:
                     self.display_evaluation_results(response["data"])
                 else:
-                    st.error(f"Evaluation failed: {response['message']}")
+                    st.error(response['message'])
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
                 logger.exception(f"Evaluation error: {e}")
@@ -97,14 +97,17 @@ class RAGApp:
     def create_new_brain(self, brain_name):
         """Creates a new brain by sending a request to the backend."""
         with st.spinner(f"Creating brain: {brain_name}..."):
-            response = requests.post(
-                "http://backend:9000/api/create-brain", data={"brain_name": brain_name}
-            )
-            response = response.json()
-            if response["status_code"] == 201:
-                st.success(response["message"])
-            else:
-                st.warning(response["message"])
+            try:
+                response = requests.post(
+                    "http://backend:9000/api/create-brain", data={"brain_name": brain_name}
+                )
+                response = response.json()
+                if response["success"]:
+                    st.success(response["message"])
+                else:
+                    st.warning(response["message"])
+            except Exception as e:
+                st.error(f"Could not connect to the backend: {str(e)}")
 
     def fetch_brain_list(self):
         """Fetches the list of available brains."""
@@ -112,10 +115,10 @@ class RAGApp:
             response = requests.get("http://backend:9000/api/list-brains")
             response = response.json()
 
-            if response["status_code"] == 201:
+            if response["success"]:
                 return response["data"]
             else:
-                st.error(f"Error fetching brain list: {response['message']}")
+                st.error(response['message'])
         except Exception as e:
             st.error(f"Could not connect to the backend: {str(e)}")
             return []
@@ -205,7 +208,7 @@ class RAGApp:
                     f"http://backend:9000/api/{self.brain_id}/upload", files=files
                 )
                 response = response.json()
-                if response["status_code"] == 201:
+                if response["success"]:
                     st.success(response["message"])
                 else:
                     st.error(response["message"])
@@ -222,10 +225,10 @@ class RAGApp:
                     f"http://backend:9000/api/{self.brain_id}/list-files"
                 )
                 response = response.json()
-                if response["status_code"] == 201:
+                if response["success"]:
                     return response["data"]
                 else:
-                    st.error(f"Error fetching file list: {response['message']}")
+                    st.error(response['message'])
                     return []
             except Exception as e:
                 st.error(f"Could not connect to the backend: {str(e)}")
@@ -255,12 +258,10 @@ class RAGApp:
                 )
                 response = response.json()
 
-                if response["status_code"] == 201:
+                if response["success"]:
                     self.display_results(response["data"], selected_rag_model)
                 else:
-                    st.error(
-                        f"Error: {response['status_code']} - {response['message']}"
-                    )
+                    st.error(response['message'])
 
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")

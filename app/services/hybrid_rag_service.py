@@ -103,80 +103,85 @@ class HybridRagService:
         """
         logger.info(f"Performing hybrid search for the selected pdf")
 
-        dense_query = list(settings.DENSE_EMBEDDING_MODEL.embed_query(query))
-        sparse_query = list(settings.SPARSE_EMBEDDING_MODEL.embed([query]))[0]
+        try:
+            dense_query = self.create_dense_vector(query)
+            sparse_query = self.create_sparse_vector(query) 
 
-        sparse_query = models.SparseVector(
-            indices=sparse_query.indices.tolist(), values=sparse_query.values.tolist()
-        )
+            results = self.client.query_points(
+                collection_name=brain_id,
+                prefetch=[
+                    models.Prefetch(query=sparse_query, using="sparse", limit=limit),
+                    models.Prefetch(query=dense_query, using="dense", limit=limit),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="metadata.pdf_id",
+                            match=models.MatchValue(value=selected_pdf_id),
+                        )
+                    ]
+                ),
+                limit=limit,
+            )
 
-        results = self.client.query_points(
-            collection_name=brain_id,
-            prefetch=[
-                models.Prefetch(query=sparse_query, using="sparse", limit=limit),
-                models.Prefetch(query=dense_query, using="dense", limit=limit),
-            ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
-            query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="metadata.pdf_id",
-                        match=models.MatchValue(value=selected_pdf_id),
-                    )
-                ]
-            ),
-            limit=limit,
-        )
+            documents = [point for point in results.points]
 
-        documents = [point for point in results.points]
+            # ReRank the documents
+            reranked_docs = self.llm_manager.rerank_docs(documents, query)
 
-        # ReRank the documents
-        reranked_docs = self.llm_manager.rerank_docs(documents, query)
-
-        logger.info(f"Results generated: {len(reranked_docs)} documents retirved")
-        return reranked_docs
+            logger.info(f"Results generated: {len(reranked_docs)} documents retirved")
+            return reranked_docs
+        except Exception as e:
+            raise e
 
     def sparse_search(self, query: str, pdf_id: str, brain_id: str):
         """
         Perform a sparse search based on the provided query using QdrantVectorStore.
         """
-        # Generate sparse query
-        sparse_query = list(settings.SPARSE_EMBEDDING_MODEL.embed([query]))[0]
-        sparse_query = models.SparseVector(
-            indices=sparse_query.indices.tolist(), values=sparse_query.values.tolist()
-        )
+        try:
+            # Generate sparse query
+            sparse_query = list(settings.SPARSE_EMBEDDING_MODEL.embed([query]))[0]
+            sparse_query = models.SparseVector(
+                indices=sparse_query.indices.tolist(), values=sparse_query.values.tolist()
+            )
 
-        logger.info("Begin sparse Search")
+            logger.info("Begin sparse Search")
 
-        results = self.client.query_points(
-            collection_name=brain_id,
-            query=sparse_query,
-            using="sparse",
-            query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="metadata.pdf_id", match=models.MatchValue(value=pdf_id)
-                    )
-                ]
-            ),
-        )
-        documents = [point for point in results.points]
+            results = self.client.query_points(
+                collection_name=brain_id,
+                query=sparse_query,
+                using="sparse",
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="metadata.pdf_id", match=models.MatchValue(value=pdf_id)
+                        )
+                    ]
+                ),
+            )
+            documents = [point for point in results.points]
 
-        logger.info(
-            f"Sparse Search Completed. Result: {len(documents)} documents retrieved"
-        )
-        return documents
+            logger.info(
+                f"Sparse Search Completed. Result: {len(documents)} documents retrieved"
+            )
+            return documents
+        except Exception as e:
+            raise e
 
     def generate_response(self, question: str, context: str):
         """
         Generate a response using the LLMManager and prompt template.
         """
-        # Format the prompt using the provided template
-        formatted_prompt = self.prompt_template.format(
-            question=question, context=context
-        )
+        try:
+            # Format the prompt using the provided template
+            formatted_prompt = self.prompt_template.format(
+                question=question, context=context
+            )
 
-        # Call the invoke method with the formatted prompt string
-        response = self.llm_manager.llm.invoke(formatted_prompt)
-        logger.info("response generated")
-        return response
+            # Call the invoke method with the formatted prompt string
+            response = self.llm_manager.llm.invoke(formatted_prompt)
+            logger.info("response generated")
+            return response
+        except Exception as e:
+            raise e

@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 from typing import List
-
+import logging
 from fastapi import UploadFile
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -11,10 +11,11 @@ from langchain_core.globals import set_debug
 
 set_debug(True)
 
+logger = logging.getLogger(__name__)
 
 class PdfService:
     def __init__(self, logger):
-        self.logger = logger
+        pass
 
     async def extract_content_from_pdf(self, file: UploadFile) -> List[Document]:
         """
@@ -28,7 +29,7 @@ class PdfService:
             like page_content, metadata, etc. extracted from the PDF.
         """
         try:
-            self.logger.info("Extracting content from PDF file: %s", file.filename)
+            logger.info("Extracting content from PDF file: %s", file.filename)
 
             # Save the uploaded file temporarily in memory
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
@@ -58,7 +59,7 @@ class PdfService:
                 min_overlap, min(int(chunk_size * overlap_ratio), max_overlap)
             )
 
-            self.logger.info(
+            logger.info(
                 "Adaptive chunk size: %d, Adaptive overlap: %d (total word count: %d)",
                 chunk_size,
                 overlap_size,
@@ -71,7 +72,7 @@ class PdfService:
             )
             chunks = splitter.split_documents(docs)
 
-            self.logger.info(
+            logger.info(
                 "Successfully extracted and split PDF '%s' into %d chunks.",
                 file.filename,
                 len(chunks),
@@ -79,7 +80,7 @@ class PdfService:
 
             return chunks
         except Exception as e:
-            self.logger.exception(
+            logger.exception(
                 "Error extracting content from PDF file '%s': %s", file.filename, e
             )
             raise e

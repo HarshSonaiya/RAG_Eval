@@ -73,10 +73,10 @@ class PdfController:
 
             if brain_info:
                 return send_response(
-                    True, 201, f"Brains fetched successfully.", brain_info
+                    True, 200, f"Brains fetched successfully.", brain_info
                 )
             else:
-                return send_response(False, 409, f"Create a brain first.", None)
+                return send_response(False, 404, f"Create a brain first.", None)
         except Exception as e:
             return handle_exception(500, f"Error listing brains: {e}")
 
@@ -86,11 +86,11 @@ class PdfController:
 
             if file_info:
                 return send_response(
-                    True, 201, f"Brains fetched successfully.", file_info
+                    True, 200, f"Brains fetched successfully.", file_info
                 )
             else:
                 return send_response(
-                    False, 409, f"Please upload some PDFs in the selected Brain.", None
+                    False, 404, f"Please upload some PDFs in the selected Brain.", None
                 )
         except Exception as e:
             return handle_exception(500, f"Error listing files: {e}")
@@ -146,7 +146,7 @@ class PdfController:
 
                 all_chunks.extend(chunks)
                 logger.info(
-                    "File %s processed and indexed with %d chunks.",
+                    "File %s processed and %d chunks generated.",
                     file.filename,
                     len(chunks),
                 )
@@ -163,11 +163,11 @@ class PdfController:
                     )
                 else:
                     return send_response(
-                        False, 409, f"PDF Content not supported for processing.", None
+                        False, 422, f"PDF Content not supported for processing.", None
                     )
             else:
                 logger.warning("No chunks to index.")
-                return send_response(False, 400, f"No chunks to index.", None)
+                return send_response(False, 404, f"No chunks to index.", None)
 
         except Exception as e:
             logger.exception("Error processing the PDF.")
@@ -196,7 +196,7 @@ class PdfController:
                         )
                         combined_context += scored_point.payload["content"] + " "
             if not combined_context:
-                return {"error": "No context found for the given query and PDF."}
+                combined_context = ""
 
             logger.info("Begin Response generation in hybrid rag")
             response = self.hybrid_rag_service.generate_response(
@@ -208,7 +208,7 @@ class PdfController:
 
             return send_response(
                 True,
-                201,
+                200,
                 f"Response generated successfully.",
                 {
                     "hybrid_rag_response": response,
@@ -250,8 +250,8 @@ class PdfController:
                         )
                         combined_context += scored_point.payload["content"] + " "
             if not combined_context:
-                return {"error": "No context found for the given query and PDF."}
-
+                combined_context = ""
+                
             logger.info(f"Combined Context {combined_context}")
 
             response = self.hyde_service.generate_response(query, combined_context)
@@ -260,7 +260,7 @@ class PdfController:
 
             return send_response(
                 True,
-                201,
+                200,
                 f"Response generated successfully.",
                 {
                     "hyde_rag_response": response,
@@ -297,7 +297,7 @@ class PdfController:
                         )
                         combined_context += scored_point.payload["content"] + " "
             if not combined_context:
-                return {"error": "No context found for the given query and PDF."}
+                combined_context = ""
 
             logger.info(f"Combined Context{combined_context}")
 
@@ -306,7 +306,7 @@ class PdfController:
 
             return send_response(
                 True,
-                201,
+                200,
                 f"Response generated successfully.",
                 {
                     "dense_rag_response": response,
@@ -339,7 +339,7 @@ class PdfController:
                         )
                         combined_context += scored_point.payload["content"] + " "
             if not combined_context:
-                return {"error": "No context found for the given query and PDF."}
+                combined_context = ""
 
             logger.info("Begin Response generation in Sparse rag")
             response = self.hybrid_rag_service.generate_response(
@@ -351,7 +351,7 @@ class PdfController:
 
             return send_response(
                 True,
-                201,
+                200,
                 f"Response generated successfully.",
                 {
                     "sparse_rag_response": response,
@@ -422,7 +422,7 @@ class PdfController:
             # Combine the responses into a single dictionary
             return send_response(
                 True,
-                201,
+                200,
                 f"Response generated successfully.",
                 response_data
             )
@@ -433,13 +433,16 @@ class PdfController:
         self, retrieved_context: str, query: str, llm_response: str, ground_truth: str
     ) -> Dict[str, Any]:
         """Send the response for evaluation and return the evaluation result."""
-        evaluation_result = await evaluate_response(
-            retrieved_context, query, llm_response, ground_truth
-        )
-        evaluation_contents = [eval_msg.content for eval_msg in evaluation_result[0]], [
-            eval_msg.content for eval_msg in evaluation_result[1]
-        ]
-        return evaluation_contents
+        try:
+            evaluation_result = await evaluate_response(
+                retrieved_context, query, llm_response, ground_truth
+            )
+            evaluation_contents = [eval_msg.content for eval_msg in evaluation_result[0]], [
+                eval_msg.content for eval_msg in evaluation_result[1]
+            ]
+            return send_response(True, 200, "Responses evaluated successfully.", evaluation_contents)
+        except Exception as e:
+            return handle_exception(500, f"Error evaluating response: {e}")
 
     async def evaluate_file(self, file: UploadFile):
         if not file.filename.endswith(".xlsx"):

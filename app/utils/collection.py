@@ -156,7 +156,7 @@ class Collection:
             return file_info
         except Exception as e:
             logger.error(f"Error listing files for brain '{brain_id}': {str(e)}")
-            return []
+            raise e
 
     async def check_files(self, file_name: str, brain_id: str):
         try:
