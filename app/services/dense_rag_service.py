@@ -1,23 +1,18 @@
-from config.settings import settings
-from qdrant_client import QdrantClient, models
-from langchain.schema import Document
-from utils.collection import Collection
-from langchain_qdrant import QdrantVectorStore
-from typing import List 
-from utils.llm_manager import LLMManager
-from utils.const import prompt_template
-from uuid import uuid4
 import logging
+from typing import List
 
-
+from qdrant_client import QdrantClient, models
+from utils.const import prompt_template
+from utils.llm_manager import LLMManager
 
 # Initialize logger using LoggerFactory
 logger = logging.getLogger("pipeline")
 
+
 class DenseRagService:
-    def __init__(self, client: QdrantClient):
+    def __init__(self, client: QdrantClient, llm_manager: LLMManager):
         self.client = client
-        self.llm_manager = LLMManager()  
+        self.llm_manager = llm_manager
         self.prompt_template = prompt_template
 
     def dense_search(self, query: List[float], pdf_id: str, brain_id: str):
@@ -28,13 +23,12 @@ class DenseRagService:
 
         results = self.client.query_points(
             collection_name=brain_id,
-            query=query,  
-            using = "dense",
+            query=query,
+            using="dense",
             query_filter=models.Filter(
                 must=[
                     models.FieldCondition(
-                        key="metadata.pdf_id",  
-                        match=models.MatchValue(value=pdf_id)
+                        key="metadata.pdf_id", match=models.MatchValue(value=pdf_id)
                     )
                 ]
             ),
@@ -48,7 +42,9 @@ class DenseRagService:
         """
         Generate a response using the LLMManager and prompt template.
         """
-        formatted_prompt = self.prompt_template.format(question=question, context=context)
+        formatted_prompt = self.prompt_template.format(
+            question=question, context=context
+        )
 
         response = self.llm_manager.llm.invoke(formatted_prompt)
         return response

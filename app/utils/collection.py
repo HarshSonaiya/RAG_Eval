@@ -1,13 +1,13 @@
-from qdrant_client import QdrantClient, models
 import logging
+import uuid
 from typing import List, Set
-import uuid 
-import logging
 
-from utils.helper import send_response, handle_exception
+from config.settings import settings
+from qdrant_client import QdrantClient, models
 
-# Initialize logger 
+# Initialize logger
 logger = logging.getLogger("pipeline")
+
 
 class Collection:
     def __init__(self, client: QdrantClient):
@@ -19,29 +19,32 @@ class Collection:
         """
         # Get the list of existing collections
         existing_collections = self.client.get_aliases()
+        logger.info(
+            "List of collections with aliases:%s  %s",
+            existing_collections,
+            type(existing_collections),
+        )
 
-        if brain_name in existing_collections:
-            logger.info(f"Brain with {brain_name} already exists.")
-            return send_response(
-                False, 
-                200,
-                f"Brain: {brain_name} already exists,",
-                None
-            )
-            
+        for alias in existing_collections.aliases:
+            if alias.alias_name == brain_name:
+                logger.info(f"Brain with {brain_name} already exists.")
+                return {}
+
         # If the brain does not exist, create a new collection
         try:
-            brain_id = str(uuid.uuid4())  
+            brain_id = str(uuid.uuid4())
 
             # Create a hybrid collection (dense + sparse)
             self.client.create_collection(
                 collection_name=brain_id,
                 vectors_config={
-                    'dense': models.VectorParams(size=768, distance=models.Distance.COSINE),
+                    "dense": models.VectorParams(
+                        size=768, distance=models.Distance.COSINE
+                    ),
                 },
                 sparse_vectors_config={
                     "sparse": models.SparseVectorParams(),
-                }
+                },
             )
             logger.info(f"Created hybrid collection with ID: {brain_id}")
 
@@ -55,100 +58,138 @@ class Collection:
                     )
                 ]
             )
-            logger.info(f"Created hybrid collection alias: {brain_name}")
-            
-            return send_response(
-                True,
-                200,
-                f"Brain {brain_name} created in qdrant successfully.",
-                {
-                    "brain_id":brain_id
-                }
-            )  
-        
+            logger.info(f"Created hybrid collection with alias: {brain_name}")
+
+            return brain_id
+
         except Exception as e:
-            logger.exception(f"Error while creating collections for brain '{brain_name}': {e}")
-            return handle_exception(
-                500,
-                f"Error while creating collections for brain {brain_name}",
-                e
+            logger.exception(
+                f"Error while creating collections for brain '{brain_name}': {e}"
             )
+            raise e
 
     async def list_brains(self):
 
-        existing_collections =  self.client.get_collections().collections
+        existing_collections = self.client.get_aliases().aliases
         if not existing_collections:
-                return []
+            return []
 
         brain_info = []
 
-        for collection in existing_collections :
-            try:
-                result = self.client.scroll(
-                    collection_name = collection.name,
-                    limit=1,
-                    with_payload=True
-                ) 
-                points, _ = result 
+        for collection in existing_collections:
+            brain_info.append(
+                {
+                    "brain_name": collection.alias_name,
+                    "brain_id": collection.collection_name,
+                }
+            )
 
-                for point in points:
-                    if "brain_name" in point.payload:
-                        brain_info.append({
-                            "brain_name": point.payload["brain_name"],
-                            "brain_id": collection.name  
-                        })
-            except Exception as e:
-                logger.info(f"Error searching in collection '{collection.name}': {e}")
-                continue
         return brain_info
 
-    async def list_files(self, brain_id: str):
-        file_info = []
-        file_names_set = set()
-        
+    async def update_registry(self, file_name: str, pdf_id: str, brain_id: str) -> None:
         try:
-            result = self.client.scroll(
-                collection_name = brain_id,
-                with_payload=True,
-                limit=4000
-            ) 
-            points, _ = result 
-            for point in points:
-                if "metadata" in point.payload and "file_name" in point.payload["metadata"] and "pdf_id" in point.payload["metadata"]:
-                    
-                    file_name = point.payload["metadata"]["file_name"]
-                    
-                    # Check if the file name is unique
-                    if file_name not in file_names_set:
-                        # If unique, add to the list and set
-                        file_info.append({
-                            "file_name": file_name,
-                            "file_id": point.payload["metadata"]["pdf_id"]
-                        })
-                        file_names_set.add(file_name)
-                    else:
-                        logger.info(f"Skipping duplicate file: {file_name}")
-                else:
-                    logger.warning(f"Point {point.id} in collection '{brain_id}' missing 'file_name' or 'pdf_id' in metadata.")
-            
-            logger.info("File information", file_info)
-            return file_info
-        
+            point_id = str(uuid.uuid4())
+            payload = {
+                "file_name": file_name,
+                "pdf_id": pdf_id,
+                "brain_id": brain_id,
+            }
+
+            # Upsert the record into the "data_registry" collection
+            self.client.upsert(
+                collection_name=settings.QDRANT_RECORD_STORE,
+                points=[models.PointStruct(id=point_id, vector={}, payload=payload)],
+            )
+
+            logger.info(
+                f"Successfully updated 'data_registry' with file '{file_name}' for brain ID '{brain_id}'."
+            )
         except Exception as e:
-            logger.info(f"Error searching in collection '{brain_id}': {e}")
+            logger.error(
+                f"Error updating 'data_registry' for file '{file_name}': {str(e)}"
+            )
+            raise e
+
+    async def list_files(self, brain_id: str) -> list:
+        """
+        List all files in the DATA_REGISTRY collection for the specified brain_id.
+
+        Args:
+            brain_id (str): Brain ID for the collection.
+
+        Returns:
+            list: List of file information (file_name and file_id).
+        """
+        try:
+            # Retrieve the total number of points in the collection
+            point_count = self.client.count(
+                collection_name=settings.QDRANT_RECORD_STORE,
+            ).count
+
+            if point_count == 0:
+                point_count += 1
+
+            # Retrieve all points with a filter for the given brain_id
+            response, _ = self.client.scroll(
+                collection_name=settings.QDRANT_RECORD_STORE,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="brain_id", match=models.MatchValue(value=brain_id)
+                        )
+                    ]
+                ),
+                limit=point_count,
+            )
+
+            # Extract file information
+            file_info = [
+                {
+                    "file_name": point.payload.get("file_name"),
+                    "file_id": point.payload.get("pdf_id"),
+                }
+                for point in response
+                if "file_name" in point.payload and "pdf_id" in point.payload
+            ]
+
+            logger.info(f"Retrieved {len(file_info)} files for brain '{brain_id}'.")
+            return file_info
+        except Exception as e:
+            logger.error(f"Error listing files for brain '{brain_id}': {str(e)}")
             return []
 
     async def check_files(self, file_name: str, brain_id: str):
         try:
+            point_count = self.client.count(
+                collection_name=settings.QDRANT_RECORD_STORE,
+            ).count
+
+            if point_count == 0:
+                point_count += 1
+
             # Check if the file already exists in Qdrant
-            existing_file_points = self.client.scroll(
-                collection_name=brain_id,
+            existing_file_points, _ = self.client.scroll(
+                collection_name=settings.QDRANT_RECORD_STORE,
                 scroll_filter=models.Filter(
-                    must=[models.FieldCondition(key="metadata.file_name", match=models.MatchValue(value=file_name))]
+                    must=[
+                        models.FieldCondition(
+                            key="file_name", match=models.MatchValue(value=file_name)
+                        ),
+                        models.FieldCondition(
+                            key="brain_id", match=models.MatchValue(value=brain_id)
+                        ),
+                    ]
                 ),
-                limit=1  
+                limit=point_count,
             )
-            logger.info("File check successfull.")
-            return existing_file_points[0]
-        except Exception as e :
-            logger.error(f"Issue with existing file check: {str(e)}")
+
+            file_exists = len(existing_file_points) > 0
+            logger.info(
+                f"File existence check for '{file_name}' in brain '{brain_id}' successful: {file_exists}"
+            )
+            return file_exists
+        except Exception as e:
+            logger.error(
+                f"Error checking file '{file_name}' in brain '{brain_id}': {str(e)}"
+            )
+            raise e

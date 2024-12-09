@@ -1,5 +1,6 @@
 from fastapi.responses import JSONResponse
 
+
 def send_response(success: bool, status: int, message: str, data: dict = None):
     """
     Generalized function to structure API responses.
@@ -8,9 +9,10 @@ def send_response(success: bool, status: int, message: str, data: dict = None):
         "success": success,
         "status_code": status,
         "message": message,
-        "data": data or {}
+        "data": data or {},
     }
     return JSONResponse(content=response, status_code=status)
+
 
 def handle_exception(status: int, message: str, detail: str = None):
     """
@@ -19,9 +21,8 @@ def handle_exception(status: int, message: str, detail: str = None):
     response = {
         "success": False,
         "status_code": status,
-        "message": message,
-        "detail": detail or "An unexpected error occurred."
+        "message": detail or "An unexpected error occurred.",
     }
-    print(f"Error: {message} | Detail: {detail}")  
+    print(f"Error: {message} | Detail: {detail}")
 
     return JSONResponse(content=response, status_code=status)
